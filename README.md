@@ -1,0 +1,1 @@
+> C++绑定编写中,上游源项目请前往 [GPT-SoVITS_minimal_inference](https://github.com/GPT-SoVITS-Devel/GPT-SoVITS_minimal_inference) 预览

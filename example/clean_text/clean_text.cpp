@@ -7,6 +7,18 @@
 #include "GPTSoVITS/GPTSoVITS.h"
 #include "GPTSoVITS/plog.h"
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <windows.h>
+#ifdef _WIN32
+  int _tl = []() {
+    SetConsoleOutputCP(CP_UTF8);
+    return 1;
+  }();
+#endif
+#endif
+
+
 template <typename T>
 std::string format_vector(const std::vector<T>& vec) {
   std::string result = "[";
@@ -26,6 +38,7 @@ void spl_text() {
 }
 
 int main() {
+
   try {
     std::vector<std::string> test_strs = {
       "皆さん、我在インターネット上看到someone把几国language混在一起speak。我看到之后be like：それは我じゃないか！私もtry一tryです。\n"

@@ -1,0 +1,31 @@
+# Generated from CLion C/C++ Code Style settings
+---
+BasedOnStyle: Google
+
+IndentWidth: 2
+
+# 单行最长字符数：80
+ColumnLimit: 80
+
+# 命名空间缩进：None (成员不缩进)
+NamespaceIndentation: None
+
+# 紧凑风格：合并嵌套命名空间 (如 namespace A { namespace B { ... } })
+CompactNamespaces: true
+
+# 左花括号换行策略：Attach (不换行，紧跟语句)
+BreakBeforeBraces: Attach
+
+AllowShortBlocksOnASingleLine: "Empty"
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: true
+
+# 访问控制符(public/private)偏移量：-2 (使其与类定义对齐)
+AccessModifierOffset: -2
+
+Standard: Latest
+DerivePointerAlignment: false
+PointerAlignment: Left
+SortIncludes: true
+IncludeBlocks: Regroup

@@ -1,0 +1,5 @@
+
+AUX_SOURCE_DIRECTORY(example/clean_text GPT_SOVITS_CPP_TEST_CLEAN_TEXT_SOURCE)
+add_executable(gpt_sovits_cpp_test_clean_text ${GPT_SOVITS_CPP_TEST_CLEAN_TEXT_SOURCE} ${CPPMODULE_LINK_SOURCES})
+target_link_libraries(gpt_sovits_cpp_test_clean_text PRIVATE gsv_lib)
+

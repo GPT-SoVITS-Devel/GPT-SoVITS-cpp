@@ -6,54 +6,54 @@
 #define GPT_SOVITS_CPP_MODEL_BASE_H
 
 #include <string>
-#include <vector>
 #include <unordered_map>
+#include <vector>
+
 #include "GPTSoVITS/model/device.h"
 #include "GPTSoVITS/model/tensor.h"
-
 
 namespace GPTSoVITS::Model {
 
 /**
- * @brief 推理模型基类
+ * @brief Model Base Class
  */
 class BaseModel {
 public:
-    virtual ~BaseModel() = default;
+  virtual ~BaseModel() = default;
 
-    /**
-     * @brief 加载模型文件
-     * @param model_path 模型文件路径
-     * @param device 运行设备
-     * @param work_thread_num 工作线程数
-     */
-    virtual bool Load(const std::string& model_path, const Device& device,int work_thread_num) = 0;
+  /**
+   * @brief Load model
+   * @param model_path model path
+   * @param device device
+   * @param work_thread_num thread count
+   */
+  virtual bool Load(const std::string& model_path, const Device& device,
+                    int work_thread_num) = 0;
 
-    /**
-     * @brief 执行推理
-     * @param inputs 输入张量映射 (Name -> Tensor*)
-     * @param outputs 输出张量映射 (Name -> Tensor*)
-     */
-    virtual void Forward(
-        const std::unordered_map<std::string, Tensor*>& inputs,
-        std::unordered_map<std::string, Tensor*>& outputs
-    ) = 0;
+  /**
+   * @brief Inference
+   * @param inputs inputs
+   * @param outputs outputs
+   */
+  virtual void Forward(const std::unordered_map<std::string, Tensor*>& inputs,
+                       std::unordered_map<std::string, Tensor*>& outputs) = 0;
 
-    /**
-     * @brief 获取所有输入节点的名称
-     */
-    virtual std::vector<std::string> GetInputNames() const = 0;
+  /**
+   * @brief Get input names
+   */
+  virtual std::vector<std::string> GetInputNames() const = 0;
 
-    /**
-     * @brief 获取所有输出节点的名称
-     */
-    virtual std::vector<std::string> GetOutputNames() const = 0;
+  /**
+   * @brief Get output names
+   */
+  virtual std::vector<std::string> GetOutputNames() const = 0;
+
+  [[nodiscard]] Device GetDevice() const { return device_; }
 
 protected:
-    Device device_;
+  Device device_;
 };
 
-} // namespace GPTSoVITS::Model
+}  // namespace GPTSoVITS::Model
 
-
-#endif //GPT_SOVITS_CPP_MODEL_BASE_H
+#endif  // GPT_SOVITS_CPP_MODEL_BASE_H

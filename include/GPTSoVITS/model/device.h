@@ -34,6 +34,9 @@ struct Device {
     return type == other.type && device_id == other.device_id &&
            stream == other.stream;
   }
+  bool operator!=(const Device& other) const {
+    return !operator==(other);
+  };
 };
 
 }  // namespace GPTSoVITS::Model

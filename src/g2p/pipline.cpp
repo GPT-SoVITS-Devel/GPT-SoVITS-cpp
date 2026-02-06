@@ -7,6 +7,7 @@
 
 #include "GPTSoVITS/Text/LangDetect.h"
 #include "GPTSoVITS/Utils/exception.h"
+#include "GPTSoVITS/model/device.h"
 #include "GPTSoVITS/plog.h"
 
 namespace GPTSoVITS::G2P {
@@ -17,6 +18,9 @@ void G2PPipline::RegisterLangProcess(
     const std::string& lang, std::unique_ptr<IG2P> g2p_process,
     std::unique_ptr<Model::BertModel> bert_model, bool warm_up) {
   m_lang_process[lang] = std::move(g2p_process);
+  if (bert_model) {
+    m_bert_models[lang] = std::move(bert_model);
+  }
   if (warm_up) {
     m_lang_process[lang]->WarmUp();
   }
@@ -36,7 +40,7 @@ const IG2P* G2PPipline::GetG2P(const std::string& lang,
     return iter->second.get();
   }
   std::string_view dLang = default_lang.empty() ? m_default_lang : default_lang;
-  iter = m_lang_process.find(dLang.data());
+  iter = m_lang_process.find(std::string(dLang));
   if (iter != m_lang_process.end()) {
     return iter->second.get();
   }
@@ -59,25 +63,50 @@ std::shared_ptr<Bert::BertRes> G2PPipline::GetPhoneAndBert(
     de_lang = default_lan;
   }
   auto detects = Text::LangDetect::getInstance()->DetectSplit(de_lang, htext);
-  // std::vector<at::Tensor> PhoneSeqs;
-  // std::vector<at::Tensor> BertSeqs;
-  // for (auto& detectText : detects) {
-  //   auto g2p = GetG2P(detectText.language);
-  //   auto g2pRes = g2p->CleanText(detectText.sentence);
-  //   auto bert = Bert::MakeFromLang(detectText.language);
-  //   if (!bert) {
-  //     PrintError("No Bert Model for {}\nSentence: {}", detectText.language,
-  //                detectText.sentence);
-  //   }
-  //   auto encodeResult = (*bert)->Encode(g2pRes);
-  //   PhoneSeqs.emplace_back(std::move(*encodeResult.PhoneSeq));
-  //   BertSeqs.emplace_back(std::move(*encodeResult.BertSeq));
-  // }
-  // return std::make_shared<Bert::BertRes>(
-  //     Bert::BertRes{std::make_shared<torch::Tensor>(
-  //                       torch::cat({PhoneSeqs}, 1).to(*gpt.Device())),
-  //                   std::make_shared<at::Tensor>(
-  //                       torch::cat({BertSeqs}, 0).to(*gpt.Device()))});
+
+  std::vector<std::unique_ptr<Model::Tensor>> phone_tensors;
+  std::vector<std::unique_ptr<Model::Tensor>> bert_tensors;
+
+  for (auto& detectText : detects) {
+    auto g2p = GetG2P(detectText.language);
+    auto g2pRes = g2p->CleanText(detectText.sentence);
+
+    // Phone ID Tensor
+    std::vector<int64_t> phone_shape = { static_cast<int64_t>(g2pRes.phone_ids.size()) };
+    auto phone_tensor = Model::Tensor::Empty(phone_shape, Model::DataType::kInt64, ::GPTSoVITS::Model::Device(::GPTSoVITS::Model::DeviceType::kCPU));
+    int64_t* phone_data = phone_tensor->Data<int64_t>();
+    for(size_t i=0; i<g2pRes.phone_ids.size(); ++i) {
+      phone_data[i] = g2pRes.phone_ids[i];
+    }
+    phone_tensors.push_back(std::move(phone_tensor));
+
+    // Bert Feature Tensor
+    auto bert_iter = m_bert_models.find(detectText.language);
+    if (bert_iter != m_bert_models.end()) {
+        auto bert_feat = bert_iter->second->GetBertFeature(g2pRes.norm_text, g2pRes.word2ph);
+        bert_tensors.push_back(std::move(bert_feat));
+    } else {
+        // 如果没有BERT模型, 填充全零 (1024, seq_len)
+        std::vector<int64_t> bert_shape = { 1024, static_cast<int64_t>(g2pRes.phone_ids.size()) };
+        auto zero_bert = Model::Tensor::Empty(bert_shape, Model::DataType::kFloat32, ::GPTSoVITS::Model::Device(::GPTSoVITS::Model::DeviceType::kCPU));
+        std::memset(zero_bert->Data(), 0, zero_bert->ByteSize());
+        bert_tensors.push_back(std::move(zero_bert));
+    }
+  }
+
+  // 拼接结果
+  std::vector<Model::Tensor*> phone_ptrs;
+  for(auto& t : phone_tensors) phone_ptrs.push_back(t.get());
+  auto merged_phones = Model::Tensor::Concat(phone_ptrs, 0);
+
+  std::vector<Model::Tensor*> bert_ptrs;
+  for(auto& t : bert_tensors) bert_ptrs.push_back(t.get());
+  auto merged_bert = Model::Tensor::Concat(bert_ptrs, 1);
+
+  auto res = std::make_shared<Bert::BertRes>();
+  res->PhoneSeq = std::move(merged_phones);
+  res->BertSeq = std::move(merged_bert);
+  return res;
 }
 
 }  // namespace GPTSoVITS::G2P

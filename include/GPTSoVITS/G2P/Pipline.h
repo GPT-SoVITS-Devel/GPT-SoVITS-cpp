@@ -1,4 +1,4 @@
-//
+﻿//
 // Created by 19254 on 2026/2/5.
 //
 
@@ -16,6 +16,7 @@ namespace GPTSoVITS::G2P {
 
 class G2PPipline {
   std::map<std::string, std::unique_ptr<IG2P>> m_lang_process;
+  std::map<std::string, std::unique_ptr<Model::BertModel>> m_bert_models;
   std::string m_default_lang;
 
 public:
@@ -26,11 +27,11 @@ public:
   const IG2P* GetG2P(const std::string& lang, const std::string& default_lang = "");
 
   /**
-   * 对指定语言注册对应的处理类
-   * @param lang 用以注册支持的语言,语言代码一般为 ISO 639-1 风格(zh/en/ja)
-   * @param g2p_process 用以g2p的处理类
-   * @param bert_model 对应的 bert 实例
-   * @param warm_up 是否预热
+   * Register language process
+   * @param lang language code (zh/en/ja)
+   * @param g2p_process g2p processor
+   * @param bert_model bert model instance
+   * @param warm_up whether to warm up
    */
   void RegisterLangProcess(const std::string& lang,
                            std::unique_ptr<IG2P> g2p_process,

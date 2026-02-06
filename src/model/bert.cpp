@@ -3,14 +3,7 @@
 //
 #include "GPTSoVITS/model/bert.h"
 
-#include "GPTSoVITS/model/backend/onnx_backend.h"
-
 namespace GPTSoVITS::Model {
 
-
-BertModel::EncodeResult BertModel::EncodeText(const std::string &text) {
-
-
-}
 
 }

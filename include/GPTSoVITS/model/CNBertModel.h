@@ -25,17 +25,22 @@ public:
   template <typename MODEL_BACKEND>
   void Init(const std::string& model_path, const std::string& tokenzer_path,
             const Device& device = DeviceType::kCPU, int work_thread_num = 1) {
-    std::ifstream file(tokenzer_path.data());
+    std::ifstream file(tokenzer_path);
     if (!file.is_open()) {
-      THROW_ERRORN("加载Tokenizer失败\nBy:{}", tokenzer_path.data());
+      THROW_ERRORN("加载Tokenizer失败\nBy:{}", tokenzer_path);
     }
-    std::string content;
-    file >> content;
+    std::string content(
+        (std::istreambuf_iterator<char>(file)),
+        std::istreambuf_iterator<char>()
+    );
+
     m_tokenzer = tokenizers::Tokenizer::FromBlobJSON(content);
     BertModel::Init<MODEL_BACKEND>(model_path, device, work_thread_num);
   };
 
   EncodeResult EncodeText(const std::string& text);
+  std::unique_ptr<Tensor> GetBertFeature(const std::string& text,
+                                         const std::vector<int>& word2ph);
 };
 
 }  // namespace GPTSoVITS::Model

@@ -27,7 +27,7 @@ int main() {
 
   auto bert_model = std::make_unique<CNBertModel>();
 
-  std::string bert_path = R"(F:\Engcode\AIAssistant\GPT-SoVITS-Devel\GPT-SoVITS_minimal_inference\onnx_export\firefly_v2_proplus\bert.onnx)";
+  std::string bert_path = R"(F:\Engcode\AIAssistant\GPT-SoVITS-Devel\GPT-SoVITS_minimal_inference\onnx_export\firefly_v2_proplus_fp16\bert.onnx)";
 
   std::string tokenizer_path = (GPTSoVITS::g_globalResourcesPath / "bert_tokenizer.json").string();
 

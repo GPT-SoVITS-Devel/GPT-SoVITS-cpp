@@ -48,6 +48,16 @@ public:
    */
   virtual std::vector<std::string> GetOutputNames() const = 0;
 
+  /**
+   * @brief Get input data type
+   */
+  virtual DataType GetInputDataType(const std::string& name) const = 0;
+
+  /**
+   * @brief Get output data type
+   */
+  virtual DataType GetOutputDataType(const std::string& name) const = 0;
+
   [[nodiscard]] Device GetDevice() const { return device_; }
 
 protected:

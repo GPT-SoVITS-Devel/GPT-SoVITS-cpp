@@ -33,26 +33,18 @@ std::unique_ptr<Tensor> CNBertModel::GetBertFeature(
 
   std::vector<int64_t> shape = {
       1, static_cast<int64_t>(encode_res.TokenIds.size())};
-  auto input_ids =
-      Tensor::Empty(shape, DataType::kInt64, Device(DeviceType::kCPU));
-  std::memcpy(input_ids->Data(), encode_res.TokenIds.data(),
-              input_ids->ByteSize());
 
-  auto attention_mask =
-      Tensor::Empty(shape, DataType::kInt64, Device(DeviceType::kCPU));
-  std::memcpy(attention_mask->Data(), encode_res.Masks.data(),
-              attention_mask->ByteSize());
+  auto input_ids_base = Tensor::CreateFromHost(
+      encode_res.TokenIds.data(), shape, DataType::kInt64);
+  auto attention_mask_base = Tensor::CreateFromHost(
+      encode_res.Masks.data(), shape, DataType::kInt64);
+  auto token_type_ids_base = Tensor::CreateFromHost(
+      encode_res.TokenTypeIds.data(), shape, DataType::kInt64);
 
-  auto token_type_ids =
-      Tensor::Empty(shape, DataType::kInt64, Device(DeviceType::kCPU));
-  std::memcpy(token_type_ids->Data(), encode_res.TokenTypeIds.data(),
-              token_type_ids->ByteSize());
-
-  // 移动到模型所在设备
   Device model_device = m_model->GetDevice();
-  auto in_ids = input_ids->ToDevice(model_device);
-  auto in_mask = attention_mask->ToDevice(model_device);
-  auto in_type = token_type_ids->ToDevice(model_device);
+  auto in_ids = input_ids_base->To(model_device, m_model->GetInputDataType("input_ids"));
+  auto in_mask = attention_mask_base->To(model_device, m_model->GetInputDataType("attention_mask"));
+  auto in_type = token_type_ids_base->To(model_device, m_model->GetInputDataType("token_type_ids"));
 
   std::unordered_map<std::string, Tensor*> inputs = {
       {"input_ids", in_ids.get()},
@@ -69,13 +61,12 @@ std::unique_ptr<Tensor> CNBertModel::GetBertFeature(
   }
 
   std::unique_ptr<Tensor> raw_hidden(it->second);
-
   for (auto& pair : outputs) {
     if (pair.first != "hidden_states") delete pair.second;
   }
-  // raw_hidden is (1, L, 1024)
 
-  auto cpu_hidden = raw_hidden->ToCPU();
+  // 统一转为 Float32 处理 (CPU)
+  auto cpu_hidden = raw_hidden->To(Device(DeviceType::kCPU), DataType::kFloat32);
   float* src_ptr = cpu_hidden->Data<float>();
   int64_t L = cpu_hidden->Shape()[1];
   int64_t D = cpu_hidden->Shape()[2];  // 1024
@@ -91,24 +82,29 @@ std::unique_ptr<Tensor> CNBertModel::GetBertFeature(
   // res = hidden_states[0][1:-1] -> shape (L, 1024)
   if (g2p_info.word2ph.size() != static_cast<size_t>(L)) {
     THROW_ERRORN(
-        "word2ph size ({}) does not match the shape of hidden_states (L-2={}) "
-        "for text: '{}'. "
-        "Check if you are using a character-based tokenizer (like RoBERTa's) "
-        "instead of a merging one.",
-        g2p_info.word2ph.size(), L - 2, text);
+        "word2ph size ({}) does not match the shape of hidden_states (L={}) "
+        "for text: '{}'. ",
+        g2p_info.word2ph.size(), L, text);
   }
 
-  // 填充逻辑以支持转置存贮 (1024, seq_len)
-  int64_t current_phone_idx = 0;
-  for (size_t i = 0; i < g2p_info.word2ph.size(); ++i) {
-    if (i + 1 >= static_cast<size_t>(L - 1)) break;
-    float* current_word_feat = src_ptr + (i + 1) * D;
-    int repeat_count = g2p_info.word2ph[i];
-    for (int r = 0; r < repeat_count; ++r) {
-      for (int64_t d = 0; d < D; ++d) {
-        dst_ptr[d * total_phones + current_phone_idx] = current_word_feat[d];
+  int64_t phone_offset_base = 0;
+  std::vector<int64_t> phone_offsets;
+  phone_offsets.reserve(g2p_info.word2ph.size());
+  for (int count : g2p_info.word2ph) {
+    phone_offsets.push_back(phone_offset_base);
+    phone_offset_base += count;
+  }
+
+  for (int64_t d = 0; d < D; ++d) {
+    float* dst_row = dst_ptr + d * total_phones;
+    for (size_t i = 0; i < g2p_info.word2ph.size(); ++i) {
+      if (i + 1 >= static_cast<size_t>(L - 1)) break;
+      float val = src_ptr[(i + 1) * D + d];
+      int repeat_count = g2p_info.word2ph[i];
+      int64_t offset = phone_offsets[i];
+      for (int r = 0; r < repeat_count; ++r) {
+        dst_row[offset + r] = val;
       }
-      current_phone_idx++;
     }
   }
 

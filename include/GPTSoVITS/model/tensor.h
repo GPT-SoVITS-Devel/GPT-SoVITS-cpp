@@ -10,7 +10,7 @@
 
 namespace GPTSoVITS::Model {
 
-// 数据类型枚举,对齐ONNX/TensorRT常见类型
+// 数据类型枚举
 enum class DataType {
   kFloat32,
   kFloat16,
@@ -22,7 +22,7 @@ enum class DataType {
 
 class Tensor {
 public:
-  // 定义内存释放器回调,用于兼容不同后端的内存释放逻辑(如 free, cudaFree)
+  // 内存释放器回调
   using Deleter = std::function<void(void*)>;
 
   // 禁止默认构造,必须通过工厂方法或明确参数创建有效Tensor
@@ -56,6 +56,12 @@ public:
 
   // 设备间拷贝
   [[nodiscard]] std::unique_ptr<Tensor> ToDevice(Device device) const;
+
+  // 类型转换
+  [[nodiscard]] std::unique_ptr<Tensor> ToType(DataType dtype) const;
+
+  // 综合转换 (合并设备搬运与类型转换)
+  [[nodiscard]] std::unique_ptr<Tensor> To(Device device, DataType dtype) const;
 
   // 快速移动到CPU
   [[nodiscard]] std::unique_ptr<Tensor> ToCPU() const {

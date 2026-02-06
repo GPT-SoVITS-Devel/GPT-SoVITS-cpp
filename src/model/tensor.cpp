@@ -11,9 +11,63 @@
 #include <cuda_runtime.h>
 #endif
 
+#include <xtl/xhalf_float.hpp>
+
 namespace GPTSoVITS::Model {
 
 namespace {
+using half = xtl::half_float;
+
+template <typename T_IN, typename T_OUT>
+void ConvertData(const void* in, void* out, int64_t numel) {
+  const T_IN* in_ptr = static_cast<const T_IN*>(in);
+  T_OUT* out_ptr = static_cast<T_OUT*>(out);
+  for (int64_t i = 0; i < numel; ++i) {
+    out_ptr[i] = static_cast<T_OUT>(in_ptr[i]);
+  }
+}
+
+template <typename T_IN>
+void DispatchOut(const T_IN* in, void* out, int64_t numel, DataType out_type) {
+  switch (out_type) {
+    case DataType::kFloat32: ConvertData<T_IN, float>(in, out, numel); break;
+    case DataType::kFloat16: ConvertData<T_IN, half>(in, out, numel); break;
+    case DataType::kInt32: ConvertData<T_IN, int32_t>(in, out, numel); break;
+    case DataType::kInt64: ConvertData<T_IN, int64_t>(in, out, numel); break;
+    case DataType::kInt8: ConvertData<T_IN, int8_t>(in, out, numel); break;
+    case DataType::kUInt8: ConvertData<T_IN, uint8_t>(in, out, numel); break;
+    default: THROW_ERROR("Unsupported output type for conversion");
+  }
+}
+
+void DispatchIn(const void* in, DataType in_type, void* out, DataType out_type,
+                int64_t numel) {
+  switch (in_type) {
+    case DataType::kFloat32:
+      DispatchOut<float>(static_cast<const float*>(in), out, numel, out_type);
+      break;
+    case DataType::kFloat16:
+      DispatchOut<half>(static_cast<const half*>(in), out, numel, out_type);
+      break;
+    case DataType::kInt32:
+      DispatchOut<int32_t>(static_cast<const int32_t*>(in), out, numel,
+                           out_type);
+      break;
+    case DataType::kInt64:
+      DispatchOut<int64_t>(static_cast<const int64_t*>(in), out, numel,
+                           out_type);
+      break;
+    case DataType::kInt8:
+      DispatchOut<int8_t>(static_cast<const int8_t*>(in), out, numel, out_type);
+      break;
+    case DataType::kUInt8:
+      DispatchOut<uint8_t>(static_cast<const uint8_t*>(in), out, numel,
+                           out_type);
+      break;
+    default: THROW_ERROR("Unsupported input type for conversion");
+  }
+}
+
 // 计算形状元素乘积
 int64_t ComputeNumel(const std::vector<int64_t>& shape) {
   if (shape.empty()) {
@@ -139,6 +193,48 @@ std::unique_ptr<Tensor> Tensor::ToDevice(Device device) const {
   return new_tensor;
 }
 
+std::unique_ptr<Tensor> Tensor::ToType(DataType dtype) const {
+  if (dtype_ == dtype) {
+    return Clone();
+  }
+
+  // 目前转换仅支持在CPU上进行
+  auto cpu_src = ToCPU();
+  auto cpu_dst = Empty(shape_, dtype, Device(DeviceType::kCPU));
+
+  DispatchIn(cpu_src->Data(), dtype_, cpu_dst->Data(), dtype, numel_);
+
+  // 如果原Tensor在CUDA上, 将转换后的结果搬回去
+  if (device_.type == DeviceType::kCUDA) {
+    return cpu_dst->ToDevice(device_);
+  }
+  return cpu_dst;
+}
+
+std::unique_ptr<Tensor> Tensor::To(Device device, DataType dtype) const {
+  // 设备和类型都一致
+  if (device_ == device && dtype_ == dtype) {
+    return Clone();
+  }
+
+  // 仅设备不一致 (H2D / D2H)
+  if (dtype_ == dtype) {
+    return ToDevice(device);
+  }
+
+  // 仅类型不一致 (CPU 类型转换 / GPU 搬回 CPU 转换再搬回去)
+  if (device_ == device) {
+    return ToType(dtype);
+  }
+
+  // 综合转换 (最优路径: 在源/目标端更便宜的一端进行转换)
+  // 非标转换(如 Int64 -> Float16) 在 CPU 上会稳定点
+  // 先转
+  auto temp_cpu_typed = ToCPU()->ToType(dtype);
+  // 再搬运
+  return temp_cpu_typed->ToDevice(device);
+}
+
 Tensor& Tensor::Reshape(const std::vector<int64_t>& new_shape) {
   int64_t new_numel = ComputeNumel(new_shape);
 
@@ -220,11 +316,6 @@ std::unique_ptr<Tensor> Tensor::Concat(const std::vector<Tensor*>& tensors, int 
 
   auto out_tensor = Empty(out_shape, dtype, device);
   uint8_t* dst_ptr = out_tensor->Data<uint8_t>();
-
-  // 仅支持在最高维或当Tensor是连续块时的拼接逻辑
-  // 针对 TTS 场景: 
-  // 1. PhoneSeq (seq_len) -> axis 0 OK
-  // 2. BertSeq (1024, seq_len) -> axis 1
   
   if (axis == 0) {
     for (auto t : tensors) {
@@ -239,8 +330,6 @@ std::unique_ptr<Tensor> Tensor::Concat(const std::vector<Tensor*>& tensors, int 
       dst_ptr += b;
     }
   } else {
-    // 针对 (1024, seq_len) 在 axis 1 拼接
-    // 需要更加复杂的逻辑, 这里针对 2D 场景做特殊优化
     if (base_shape.size() == 2 && axis == 1) {
       int64_t row_count = base_shape[0];
       size_t element_size = ElementSize(dtype);

@@ -15,10 +15,52 @@ struct ONNXBackend::Impl {
   std::unique_ptr<Ort::Session> session;
   std::vector<std::string> input_names;
   std::vector<std::string> output_names;
+  std::unordered_map<std::string, DataType> input_types;
+  std::unordered_map<std::string, DataType> output_types;
 };
 
 ONNXBackend::ONNXBackend() : impl_(std::make_unique<Impl>()) {}
 ONNXBackend::~ONNXBackend() = default;
+
+namespace {
+ONNXTensorElementDataType ToOnnxType(DataType dtype) {
+  switch (dtype) {
+    case DataType::kFloat32:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+    case DataType::kFloat16:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16;
+    case DataType::kInt32:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32;
+    case DataType::kInt64:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64;
+    case DataType::kInt8:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8;
+    case DataType::kUInt8:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8;
+    default:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
+  }
+}
+
+DataType FromOnnxType(ONNXTensorElementDataType dtype) {
+  switch (dtype) {
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+      return DataType::kFloat32;
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16:
+      return DataType::kFloat16;
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+      return DataType::kInt32;
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+      return DataType::kInt64;
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
+      return DataType::kInt8;
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+      return DataType::kUInt8;
+    default:
+      THROW_ERROR("Unsupported ONNX data type");
+  }
+}
+}  // namespace
 
 bool ONNXBackend::Load(const std::string& model_path, const Device& device,
                        int work_thread_num) {
@@ -38,6 +80,34 @@ bool ONNXBackend::Load(const std::string& model_path, const Device& device,
 #endif
     impl_->session = std::make_unique<Ort::Session>(
         impl_->env, Text::Utf8ToWstring(model_path).c_str(), options);
+
+    // 收集输入信息
+    auto input_count = impl_->session->GetInputCount();
+    for (size_t i = 0; i < input_count; ++i) {
+      auto name = impl_->session->GetInputNameAllocated(
+          i, Ort::AllocatorWithDefaultOptions());
+      std::string name_str = name.get();
+      impl_->input_names.push_back(name_str);
+
+      auto type_info = impl_->session->GetInputTypeInfo(i);
+      auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+      impl_->input_types[name_str] = FromOnnxType(tensor_info.GetElementType());
+    }
+
+    // 收集输出信息
+    auto output_count = impl_->session->GetOutputCount();
+    for (size_t i = 0; i < output_count; ++i) {
+      auto name = impl_->session->GetOutputNameAllocated(
+          i, Ort::AllocatorWithDefaultOptions());
+      std::string name_str = name.get();
+      impl_->output_names.push_back(name_str);
+
+      auto type_info = impl_->session->GetOutputTypeInfo(i);
+      auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+      impl_->output_types[name_str] =
+          FromOnnxType(tensor_info.GetElementType());
+    }
+
     PrintInfo("[ONNXBackend] Loaded model from: {}", model_path);
 
     return true;
@@ -45,32 +115,6 @@ bool ONNXBackend::Load(const std::string& model_path, const Device& device,
     PrintError("[ONNXBackend] Load failed: {}", e.what());
     return false;
   }
-}
-
-namespace {
-ONNXTensorElementDataType ToOnnxType(DataType dtype) {
-  switch (dtype) {
-    case DataType::kFloat32: return ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
-    case DataType::kFloat16: return ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16;
-    case DataType::kInt32:   return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32;
-    case DataType::kInt64:   return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64;
-    case DataType::kInt8:    return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8;
-    case DataType::kUInt8:   return ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8;
-    default: return ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
-  }
-}
-
-DataType FromOnnxType(ONNXTensorElementDataType dtype) {
-  switch (dtype) {
-    case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:   return DataType::kFloat32;
-    case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16: return DataType::kFloat16;
-    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:   return DataType::kInt32;
-    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:   return DataType::kInt64;
-    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:    return DataType::kInt8;
-    case ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:   return DataType::kUInt8;
-    default: THROW_ERROR("Unsupported ONNX data type");
-  }
-}
 }
 
 void ONNXBackend::Forward(
@@ -155,6 +199,19 @@ std::vector<std::string> ONNXBackend::GetInputNames() const {
 
 std::vector<std::string> ONNXBackend::GetOutputNames() const {
   return impl_->output_names;
+}
+
+DataType ONNXBackend::GetInputDataType(const std::string& name) const {
+  auto it = impl_->input_types.find(name);
+  if (it == impl_->input_types.end()) THROW_ERRORN("Input not found: {}", name);
+  return it->second;
+}
+
+DataType ONNXBackend::GetOutputDataType(const std::string& name) const {
+  auto it = impl_->output_types.find(name);
+  if (it == impl_->output_types.end())
+    THROW_ERRORN("Output not found: {}", name);
+  return it->second;
 }
 
 }  // namespace GPTSoVITS::Model

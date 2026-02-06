@@ -83,7 +83,7 @@ std::shared_ptr<Bert::BertRes> G2PPipline::GetPhoneAndBert(
     // Bert Feature Tensor
     auto bert_iter = m_bert_models.find(detectText.language);
     if (bert_iter != m_bert_models.end()) {
-        auto bert_feat = bert_iter->second->GetBertFeature(g2pRes.norm_text, g2pRes.word2ph);
+        auto bert_feat = bert_iter->second->GetBertFeature(g2pRes.norm_text, g2pRes);
         bert_tensors.push_back(std::move(bert_feat));
     } else {
         // 如果没有BERT模型, 填充全零 (1024, seq_len)

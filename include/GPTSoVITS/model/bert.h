@@ -7,6 +7,7 @@
 
 #include "GPTSoVITS/model/base.h"
 #include "GPTSoVITS/model/tensor.h"
+#include "GPTSoVITS/G2P/Base.h"
 
 namespace GPTSoVITS::Bert {
 
@@ -41,11 +42,11 @@ public:
   /**
    * @brief 执行BERT推理并根据word2ph重复特征
    * @param text 规范化后的文本
-   * @param word2ph 词到音素的对应关系
+   * @param g2p_info g2p的数据
    * @return BERT特征张量 (1024, seq_len)
    */
   virtual std::unique_ptr<Tensor> GetBertFeature(const std::string& text,
-                                                 const std::vector<int>& word2ph) = 0;
+                                                 const G2P::G2PRes& g2p_info) = 0;
 
   /**
    * @brief 纯文本编码

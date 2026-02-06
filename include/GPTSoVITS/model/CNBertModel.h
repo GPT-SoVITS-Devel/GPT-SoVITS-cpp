@@ -9,6 +9,7 @@
 #include <fstream>
 #include <memory>
 
+#include "GPTSoVITS/G2P/Base.h"
 #include "GPTSoVITS/Utils/exception.h"
 #include "tokenizers_cpp.h"
 
@@ -40,7 +41,7 @@ public:
 
   EncodeResult EncodeText(const std::string& text);
   std::unique_ptr<Tensor> GetBertFeature(const std::string& text,
-                                         const std::vector<int>& word2ph);
+                                         const G2P::G2PRes& g2p_info);
 };
 
 }  // namespace GPTSoVITS::Model

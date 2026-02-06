@@ -29,11 +29,7 @@ int main() {
 
   std::string bert_path = R"(F:\Engcode\AIAssistant\GPT-SoVITS-Devel\GPT-SoVITS_minimal_inference\onnx_export\firefly_v2_proplus\bert.onnx)";
 
-  std::string tokenizer_path = (GPTSoVITS::g_globalResourcesPath / "tokenizer_many_lang.json").string();
-  if (!std::filesystem::exists(tokenizer_path)) {
-      // PrintWarning("tokenizer.json not found in res/, falling back to tokenizer_many_lang.json (Warning: this may cause size mismatch!)");
-      tokenizer_path = (GPTSoVITS::g_globalResourcesPath / "tokenizer_many_lang.json").string();
-  }
+  std::string tokenizer_path = (GPTSoVITS::g_globalResourcesPath / "bert_tokenizer.json").string();
 
   try {
       // ONNX 后端 + CUDA

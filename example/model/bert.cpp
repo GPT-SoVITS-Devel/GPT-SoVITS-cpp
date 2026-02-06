@@ -1,6 +1,7 @@
 #include <filesystem>
 #include "GPTSoVITS/G2P/Pipline.h"
 #include "GPTSoVITS/G2P/g2p_zh.h"
+#include "GPTSoVITS/G2P/g2p_en.h"
 #include "GPTSoVITS/GPTSoVITS.h"
 #include "GPTSoVITS/Text/Sentence.h"
 #include "GPTSoVITS/Text/Coding.h"
@@ -13,6 +14,9 @@ extern std::filesystem::path g_globalResourcesPath;
 }
 
 int main() {
+#ifdef _WIN32
+  std::system("chcp 65001");
+#endif
   using namespace GPTSoVITS::Model;
   using namespace GPTSoVITS::G2P;
   using namespace GPTSoVITS::Text;
@@ -21,25 +25,30 @@ int main() {
 
   auto pipeline = std::make_shared<G2PPipline>();
 
-  auto zh_g2p = std::make_unique<G2PZH>();
   auto bert_model = std::make_unique<CNBertModel>();
 
   std::string bert_path = R"(F:\Engcode\AIAssistant\GPT-SoVITS-Devel\GPT-SoVITS_minimal_inference\onnx_export\firefly_v2_proplus\bert.onnx)";
+
   std::string tokenizer_path = (GPTSoVITS::g_globalResourcesPath / "tokenizer_many_lang.json").string();
+  if (!std::filesystem::exists(tokenizer_path)) {
+      // PrintWarning("tokenizer.json not found in res/, falling back to tokenizer_many_lang.json (Warning: this may cause size mismatch!)");
+      tokenizer_path = (GPTSoVITS::g_globalResourcesPath / "tokenizer_many_lang.json").string();
+  }
 
   try {
       // ONNX 后端 + CUDA
       PrintInfo("Loading BERT model into memory (Device: CUDA:0)...");
       bert_model->Init<ONNXBackend>(bert_path, tokenizer_path, Device(DeviceType::kCUDA, 0));
 
-      pipeline->RegisterLangProcess("zh", std::move(zh_g2p), std::move(bert_model));
-      pipeline->SetDefaultLang("zh");
+      pipeline->RegisterLangProcess("zh", std::make_unique<G2PZH>(), std::move(bert_model));
+      pipeline->RegisterLangProcess("en", std::make_unique<G2PEN>(), nullptr);
+      pipeline->SetDefaultLang("en");
 
       // Punctuation 模式
       Sentence sentence(Sentence::SentenceSplitMethod::Punctuation);
       
       // 设置切分回调: 每当切分出一个完整句子时, 触发 G2P + BERT 推理
-      sentence.AppendCallBack([pipeline](const std::string &seg) -> bool {
+      sentence.AppendCallBack([&pipeline](const std::string &seg) -> bool {
           PrintInfo(">>> [Segment Split] Processing: {}", seg);
           try {
               // 推理流: Text -> G2P (Phonemes) -> BERT (Features)
@@ -69,12 +78,11 @@ int main() {
 
       std::string test_strs = 
           "大家好，这里是高性能推理库。它旨在提供一个轻量级、生产就绪的替代方案，"
-          "适用于各种需要低延迟语音合成的场景。目前我们正在测试中文流水线，"
-          "确保文本正规化、分词以及特征提取都能稳定运行。";
+          "适用于各种需要低延迟语音合成的场景。目前我们正在测试Bert流水线，"
+          "确保文本正规化、分词以及Bert特征提取都能稳定运行。";
 
       PrintInfo("Starting streaming text input simulation...");
-      
-      // 仿照 clean_text.cpp 的 chunked 输入方式
+
       auto u32t = StringToU32String(test_strs);
       size_t index = 0;
       size_t step = 15; // 每次输入 15 个字符, 模拟打字或流式 ASR 输出

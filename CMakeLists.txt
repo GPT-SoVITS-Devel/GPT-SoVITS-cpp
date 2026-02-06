@@ -39,7 +39,9 @@ include(cmake/boost-cmake.cmake)
 include(cmake/tokenizers-cpp.cmake)
 include(cmake/libsndfile.cmake)
 include(cmake/SRELL.cmake)
+include(cmake/xsimd.cmake)
 include(cmake/xtensor.cmake)
+include(cmake/xtensor-blas.cmake)
 include(cmake/utfcpp.cmake)
 include(cmake/cld2-cmake.cmake)
 include(cmake/cppjieba.cmake)
@@ -149,7 +151,9 @@ target_link_libraries(gsv_lib PUBLIC
     cppmodule::srell
     cppmodule::tokenizers
     cppmodule::sndfile
+    cppmodule::xsimd
     cppmodule::xtensor
+    cppmodule::xtensor-blas
     cppmodule::utfcpp
     cppmodule::cld2_cmake
     cppmodule::cppjieba

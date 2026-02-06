@@ -43,3 +43,6 @@
 [submodule "third_party/utfcpp"]
 	path = third_party/utfcpp
 	url = https://github.com/CppModules/utfcpp
+[submodule "third_party/xsimd"]
+	path = third_party/xsimd
+	url = https://github.com/CppModules/xsimd

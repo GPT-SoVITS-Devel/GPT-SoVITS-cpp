@@ -28,6 +28,7 @@ BertModel::EncodeResult CNBertModel::EncodeText(const std::string& text) {
 
 std::unique_ptr<Tensor> CNBertModel::GetBertFeature(
     const std::string& text, const std::vector<int>& word2ph) {
+
   auto encode_res = EncodeText(text);
 
   std::vector<int64_t> shape = {
@@ -63,18 +64,16 @@ std::unique_ptr<Tensor> CNBertModel::GetBertFeature(
 
   auto it = outputs.find("hidden_states");
   if (it == outputs.end()) {
-    for (auto& pair : outputs) delete pair.second;
-    THROW_ERRORN("BERT model output 'hidden_states' not found.");
+  for (auto& pair : outputs) delete pair.second;
+  THROW_ERRORN("BERT model output 'hidden_states' not found.");
   }
 
   std::unique_ptr<Tensor> raw_hidden(it->second);
-  // 清理 outputs 中其他可能存在的 Tensor
+
   for (auto& pair : outputs) {
     if (pair.first != "hidden_states") delete pair.second;
   }
   // raw_hidden is (1, L, 1024)
-  // 我们需要去掉 [CLS] 和 [SEP], 即 [0][1:-1]
-  // 然后根据 word2ph 重复
 
   auto cpu_hidden = raw_hidden->ToCPU();
   float* src_ptr = cpu_hidden->Data<float>();
@@ -90,10 +89,11 @@ std::unique_ptr<Tensor> CNBertModel::GetBertFeature(
   float* dst_ptr = out_tensor->Data<float>();
 
 
-  // res = hidden_states[0][1:-1] -> shape (L-2, 1024)
-  // word2ph size 应该等于 L-2
-  if (word2ph.size() != static_cast<size_t>(L - 2)) {
-    THROW_ERRORN("word2ph does not match the shape of hidden_states");
+  // res = hidden_states[0][1:-1] -> shape (L, 1024)
+  if (word2ph.size() != static_cast<size_t>(L)) {
+    THROW_ERRORN("word2ph size ({}) does not match the shape of hidden_states (L-2={}) for text: '{}'. "
+                 "Check if you are using a character-based tokenizer (like RoBERTa's) instead of a merging one.",
+                 word2ph.size(), L - 2, text);
   }
 
   // 填充逻辑以支持转置存贮 (1024, seq_len)

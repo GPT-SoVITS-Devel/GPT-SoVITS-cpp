@@ -273,7 +273,11 @@ std::map<std::string_view, LangConfig> g_langConfigs = {
 };
 
 LangDetect::LangDetect() {
-  std::filesystem::path tp = g_globalResourcesPath / "tokenizer_many_lang.json";
+  std::filesystem::path tp = g_globalResourcesPath / "tokenizer.json";
+  if (!std::filesystem::exists(tp)) {
+    tp = g_globalResourcesPath / "tokenizer_many_lang.json";
+  }
+  
   #ifdef _HOST_WINDOWS_
   std::ifstream file(tp.wstring());
   #else
@@ -402,7 +406,7 @@ LangDetect::DetectSplit(const std::string &defaultLang, const std::string &input
       continue;
     }
     // 分词
-    auto tokens = m_tokenizer->Encode(handelStr, true);
+    auto tokens = m_tokenizer->Encode(handelStr, false);
     int ti = 0;
     for (auto &token: tokens) {
       auto word = m_tokenizer->Decode({token});

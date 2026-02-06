@@ -1,4 +1,4 @@
-//
+﻿//
 // Created by 19254 on 24-11-10.
 //
 #include <iostream>
@@ -10,12 +10,10 @@
 #ifdef _WIN32
 #include <fcntl.h>
 #include <windows.h>
-#ifdef _WIN32
-  int _tl = []() {
-    SetConsoleOutputCP(CP_UTF8);
-    return 1;
-  }();
-#endif
+int _tl = []() {
+  SetConsoleOutputCP(CP_UTF8);
+  return 1;
+}();
 #endif
 
 
@@ -30,11 +28,6 @@ std::string format_vector(const std::vector<T>& vec) {
   }
   result += "]";
   return result;
-}
-
-// 切分中英混合
-void spl_text() {
-
 }
 
 int main() {
@@ -72,14 +65,13 @@ int main() {
     });
 
     for (auto &text: test_strs) {
-      // 一定要确保字符是完整的,一次添加20字符,每50字符触发一次callback
-      auto u32t = GPTSoVITS::Text::StringToU32String(text);
+      int chunk_size = 11;
       int index = 0;
-      int len = 20;
 
-      while (index < u32t.size()) {
-        sentence.Append(GPTSoVITS::Text::U32StringToString(u32t.substr(index, len)));
-        index += len;
+      while (index < text.size()) {
+        std::string chunk = text.substr(index, chunk_size);
+        sentence.Append(chunk);
+        index += chunk_size;
       }
       sentence.Flush();
     }

@@ -3,6 +3,7 @@
 //
 #include <GPTSoVITS/Text/Coding.h>
 #include <GPTSoVITS/Text/Sentence.h>
+#include "utf8.h"
 
 #include <boost/algorithm/string.hpp>
 
@@ -16,6 +17,10 @@ Sentence::Sentence(SentenceSplitMethod cutMethod, int maxLength)
 }
 
 Sentence &Sentence::Flush() {
+  if (!m_pendingBytes.empty()) {
+    process(m_pendingBytes);
+    m_pendingBytes.clear();
+  }
   if (!m_cache.empty()) {
     if (m_appendCallback(U32StringToString(m_cache.back()))) {
       m_cache.pop_back();
@@ -25,6 +30,61 @@ Sentence &Sentence::Flush() {
 };
 
 Sentence &Sentence::Append(const std::string &text) {
+  std::string current = m_pendingBytes + text;
+  m_pendingBytes.clear();
+
+  if (current.empty()) return *this;
+
+  auto end_it = current.end();
+  auto it = utf8::find_invalid(current.begin(), end_it);
+
+  if (it == end_it) {
+    // Valid UTF-8
+    process(current);
+    return *this;
+  }
+
+  bool is_partial = false;
+  size_t remaining = std::distance(it, end_it);
+
+  // utf8最多4字节
+  if (remaining > 0 && remaining < 4) {
+    unsigned char c = static_cast<unsigned char>(*it);
+    int needed = 0;
+    if ((c & 0xE0) == 0xC0) needed = 2;
+    else if ((c & 0xF0) == 0xE0) needed = 3;
+    else if ((c & 0xF8) == 0xF0) needed = 4;
+
+    if (needed > 0 && remaining < needed) {
+      bool trailers_ok = true;
+      auto tit = it;
+      ++tit;
+      while (tit != end_it) {
+        if ((static_cast<unsigned char>(*tit) & 0xC0) != 0x80) {
+          trailers_ok = false;
+          break;
+        }
+        ++tit;
+      }
+      if (trailers_ok) {
+        is_partial = true;
+      }
+    }
+  }
+
+  if (is_partial) {
+    if (it != current.begin()) {
+      process(std::string(current.begin(), it));
+    }
+    m_pendingBytes = std::string(it, end_it);
+  } else {
+    process(current);
+  }
+
+  return *this;
+}
+
+void Sentence::process(const std::string &text) {
   auto u32text = StringToU32String(text);
   // 首先第一个是换行符
   std::vector<std::u32string> u32strList;
@@ -129,8 +189,6 @@ Sentence &Sentence::Append(const std::string &text) {
       }
     }
   }
-
-  return *this;
 }
 
 void Sentence::AppendCallBack(const std::function<bool(const std::string &)> &appendCallback) {

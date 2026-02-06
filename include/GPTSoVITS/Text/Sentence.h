@@ -84,6 +84,9 @@ private:
   uint32_t m_maxLength = 50; ///< 最大长度限制
   std::list<std::u32string> m_cache; ///< 存储切分后的字符串缓存
   SentenceAppendCallbackFunction m_appendCallback; ///< 追加文本的回调函数
+  std::string m_pendingBytes; ///< 暂存未完成的UTF-8字节序列
+
+  void process(const std::string &text);
 };
 
 };

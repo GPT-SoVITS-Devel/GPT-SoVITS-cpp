@@ -1,0 +1,16 @@
+//
+// Created by 19254 on 24-11-11.
+//
+
+#ifndef GPT_SOVITS_CPP_POLYPHONIC_H
+#define GPT_SOVITS_CPP_POLYPHONIC_H
+
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace GPTSoVITS {
+const std::unordered_map<std::string, std::vector<std::string>> &get_polyphonic_map();
+};
+
+#endif //GPT_SOVITS_CPP_POLYPHONIC_H

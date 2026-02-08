@@ -1,7 +1,7 @@
 //
 // Created by 19254 on 24-12-12.
 //
-#include <GPTSoVITS/G2P/g2p_ja.h>
+#include <GPTSoVITS/G2P/G2P_JA.h>
 #include <GPTSoVITS/Text/Coding.h>
 #include <GPTSoVITS/Text/TextNormalizer/ja.h>
 #include <GPTSoVITS/Text/Utils.h>

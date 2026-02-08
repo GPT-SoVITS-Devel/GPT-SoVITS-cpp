@@ -177,6 +177,7 @@ target_link_libraries(gsv_lib PUBLIC
     cppmodule::utfcpp
     cppmodule::cld2_cmake
     cppmodule::cppjieba
+    openjtalk
     ${BACKEND_LIBS}
 )
 

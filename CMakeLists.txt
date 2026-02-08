@@ -46,6 +46,25 @@ include(cmake/utfcpp.cmake)
 include(cmake/cld2-cmake.cmake)
 include(cmake/cppjieba.cmake)
 
+# open_jtalk+hts_engine
+
+if(NOT TARGET hts_engine)
+  add_definitions(-DCHARSET_UTF_8 -DMECAB_CHARSET=utf-8 -DMECAB_UTF8_USE_ONLY)
+  add_definitions(-DHAVE_CONFIG_H
+      -DDIC_VERSION=102
+      -DMECAB_DEFAULT_RC="dummy"
+      -DMECAB_WITHOUT_SHARE_DIC
+      -DPACKAGE="open_jtalk"
+      -DVERSION="${OPEN_JTALK_VERSION}")
+  cppmodule_add_subdirectory(hts_engine "${CMAKE_CURRENT_SOURCE_DIR}/src/g2p/hts_engine")
+  set(HTS_ENGINE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/g2p/hts_engine/include)
+  set(HTS_ENGINE_LIB ${CPPMODULE_BINARY_SUBDIR}/hts_engine)
+endif()
+if(NOT TARGET open_jtalk)
+  cppmodule_add_subdirectory(hts_engine "${CMAKE_CURRENT_SOURCE_DIR}/src/g2p/open_jtalk")
+  include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/g2p/open_jtalk)
+endif ()
+
 # ==============================================================================
 # 源码管理
 # ==============================================================================
@@ -59,6 +78,7 @@ file(GLOB_RECURSE GPT_SOVITS_CPP_SOURCE
 
 add_library(gsv_lib ${GPT_SOVITS_CPP_SOURCE})
 target_include_directories(gsv_lib PUBLIC include)
+
 
 # ==============================================================================
 # 后端配置与链接

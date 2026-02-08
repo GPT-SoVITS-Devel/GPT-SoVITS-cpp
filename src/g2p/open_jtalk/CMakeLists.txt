@@ -100,16 +100,25 @@ else()
 endif()
 
 # find HTSEngine
-find_path(HTS_ENGINE_INCLUDE_DIR HTS_engine.h)
-find_library(HTS_ENGINE_LIB hts_engine_API)
-if(NOT HTS_ENGINE_LIB)
-  # fallback
-  find_library(HTS_ENGINE_LIB HTSEngine)
+if(TARGET hts_engine_API)
+  set(HTS_ENGINE_LIB hts_engine_API)
+  get_target_property(HTS_ENGINE_INCLUDE_DIR hts_engine_API INCLUDE_DIRECTORIES)
+  if(NOT HTS_ENGINE_INCLUDE_DIR)
+     # fallback if INCLUDE_DIRECTORIES property is not set on the target
+     set(HTS_ENGINE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../hts_engine/include)
+  endif()
+else()
+  find_path(HTS_ENGINE_INCLUDE_DIR HTS_engine.h)
+  find_library(HTS_ENGINE_LIB hts_engine_API)
+  if(NOT HTS_ENGINE_LIB)
+    # fallback
+    find_library(HTS_ENGINE_LIB HTSEngine)
+  endif()
 endif()
 
 if(HTS_ENGINE_INCLUDE_DIR AND HTS_ENGINE_LIB)
   target_link_libraries(openjtalk ${HTS_ENGINE_LIB})
-  include_directories(openjtalk ${HTS_ENGINE_INCLUDE_DIR})
+  target_include_directories(openjtalk PUBLIC ${HTS_ENGINE_INCLUDE_DIR})
 else()
   message(FATAL_ERROR "Required HTSEngine not found")
 endif()

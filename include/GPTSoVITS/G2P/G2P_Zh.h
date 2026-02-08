@@ -10,7 +10,8 @@
 namespace GPTSoVITS::G2P {
 
 class G2PZH : public IG2P {
-protected:
+public:
+  void WarmUp() override;
   G2PRes _cleanText(const std::string &text) const override ;
 };
 

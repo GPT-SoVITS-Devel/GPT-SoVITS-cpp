@@ -311,4 +311,8 @@ G2PRes G2PEN::_cleanText(const std::string &text) const {
   return {phones, {}, {}, normText};
 };
 
+void G2PEN::WarmUp() {
+  auto _ = _cleanText("hello world!");
+};
+
 }

@@ -42,13 +42,13 @@ int main() {
                                   Device(DeviceType::kCUDA, 0));
 
     pipeline->RegisterLangProcess("zh", std::make_unique<G2PZH>(),
-                                  std::move(bert_model));
-    pipeline->RegisterLangProcess("en", std::make_unique<G2PEN>(), nullptr);
-    pipeline->RegisterLangProcess("ja", std::make_unique<G2PJA>(), nullptr);
+                                  std::move(bert_model),true);
+    pipeline->RegisterLangProcess("en", std::make_unique<G2PEN>(), nullptr,true);
+    pipeline->RegisterLangProcess("ja", std::make_unique<G2PJA>(), nullptr,true);
     pipeline->SetDefaultLang("en");
 
     // Punctuation 模式
-    Sentence sentence(Sentence::SentenceSplitMethod::Punctuation);
+    Sentence sentence;
 
     // 设置切分回调: 每当切分出一个完整句子时, 触发 G2P + BERT 推理
     sentence.AppendCallBack([&pipeline](const std::string& seg) -> bool {

@@ -171,4 +171,8 @@ G2PRes G2PJA::_cleanText(const std::string &text) const {
   return {std::move(phones),{},{},Text::U32StringToString(reText)};
 }
 
+void G2PJA::WarmUp() {
+  auto _ = _cleanText("こんにちは世界！");
+};
+
 }// namespace GPTSoVITS::G2P

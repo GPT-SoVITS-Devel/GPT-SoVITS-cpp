@@ -17,6 +17,7 @@ std::vector<std::string> predict(const std::string &text);
 
 class G2PEN : public IG2P {
 public:
+  void WarmUp() override;
   G2PRes _cleanText(const std::string &text) const override ;
 };
 

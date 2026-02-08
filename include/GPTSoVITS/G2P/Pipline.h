@@ -25,6 +25,7 @@ public:
   void SetDefaultLang(const std::string& default_lang);
 
   const IG2P* GetG2P(const std::string& lang, const std::string& default_lang = "");
+  std::string GetLang(const std::string& default_lang);
 
   /**
    * Register language process

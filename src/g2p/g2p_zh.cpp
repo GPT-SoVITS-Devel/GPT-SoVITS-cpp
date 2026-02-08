@@ -273,4 +273,8 @@ G2PRes G2PZH::_cleanText(const std::string &text)  const {
   return {phones, {}, word2ph, norm_text};
 }
 
+void G2PZH::WarmUp() {
+  auto _ = _cleanText("你好，世界！");
+};
+
 }

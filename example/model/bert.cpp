@@ -23,8 +23,6 @@ int main() {
   using namespace GPTSoVITS::G2P;
   using namespace GPTSoVITS::Text;
 
-  GPTSoVITS::g_globalResourcesPath = R"(F:\Engcode\c_c++\huiyicc\gsv_cpp\res)";
-
   auto pipeline = std::make_shared<G2PPipline>();
 
   auto bert_model = std::make_unique<CNBertModel>();

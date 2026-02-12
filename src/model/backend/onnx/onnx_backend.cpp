@@ -60,13 +60,97 @@ DataType FromOnnxType(ONNXTensorElementDataType dtype) {
       THROW_ERROR("Unsupported ONNX data type");
   }
 }
+
 }  // namespace
+
+std::vector<std::unique_ptr<Tensor>> ONNXBackend::InferCore(
+  ONNXBackend::Impl* impl,
+  const Device& device,
+  const std::unordered_map<std::string, Tensor*>& inputs,
+  const std::vector<std::string>& target_output_names) {
+
+  Ort::IoBinding io_binding(*impl->session);
+
+  // bind
+  for (auto const& [name, tensor] : inputs) {
+    Ort::MemoryInfo input_mem_info(nullptr);
+
+    if (tensor->IsCPU()) {
+      input_mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    } else {
+#ifdef WITH_CUDA
+      input_mem_info = Ort::MemoryInfo("Cuda", OrtAllocatorType::OrtDeviceAllocator,
+                                       tensor->GetDevice().device_id, OrtMemTypeDefault);
+#else
+      THROW_ERROR("CUDA input provided but compiled without CUDA support.");
+#endif
+    }
+
+    Ort::Value input_ort_value = Ort::Value::CreateTensor(
+        input_mem_info, tensor->Data(), tensor->ByteSize(),
+        tensor->Shape().data(), tensor->Shape().size(),
+        ToOnnxType(tensor->Type()));
+
+    io_binding.BindInput(name.c_str(), input_ort_value);
+  }
+
+  Ort::MemoryInfo output_mem_info(nullptr);
+  if (device.type == DeviceType::kCPU) {
+    output_mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+  } else {
+#ifdef WITH_CUDA
+    output_mem_info = Ort::MemoryInfo("Cuda", OrtAllocatorType::OrtDeviceAllocator,
+                                      device.device_id, OrtMemTypeDefault);
+#else
+    output_mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+#endif
+  }
+
+  // output names
+  for (const auto& name : target_output_names) {
+    io_binding.BindOutput(name.c_str(), output_mem_info);
+  }
+
+  impl->session->Run(Ort::RunOptions{nullptr}, io_binding);
+
+  auto result_values = io_binding.GetOutputValues();
+  std::vector<std::unique_ptr<Tensor>> output_tensors;
+  output_tensors.reserve(result_values.size());
+
+  for (size_t i = 0; i < result_values.size(); ++i) {
+    auto& val = result_values[i];
+
+    auto type_info = val.GetTensorTypeAndShapeInfo();
+    auto shape = type_info.GetShape();
+    auto dtype = FromOnnxType(type_info.GetElementType());
+
+    auto mem_info = val.GetTensorMemoryInfo();
+    Device res_device(DeviceType::kCPU);
+
+    if (mem_info.GetDeviceType() == OrtMemoryInfoDeviceType_GPU ||
+        std::string(mem_info.GetAllocatorName()) == "Cuda") {
+      res_device = Device(DeviceType::kCUDA, mem_info.GetDeviceId());
+    }
+
+    // 转移 Ort::Value 所有权给 Tensor
+    // Ort::Value 不支持拷贝，必须移动到堆上由 Deleter 管理
+    auto* value_holder = new Ort::Value(std::move(val));
+    auto deleter = [value_holder](void*) { delete value_holder; };
+    void* data_ptr = value_holder->GetTensorMutableData<void>();
+
+    output_tensors.push_back(
+        std::make_unique<Tensor>(data_ptr, shape, dtype, res_device, deleter));
+  }
+
+  return output_tensors;
+}
 
 bool ONNXBackend::Load(const std::string& model_path, const Device& device,
                        int work_thread_num) {
   this->device_ = device;
   try {
     Ort::SessionOptions options;
+    options.SetLogSeverityLevel(0);
     options.SetIntraOpNumThreads(work_thread_num);
     options.SetInterOpNumThreads(work_thread_num);
     options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
@@ -119,78 +203,30 @@ bool ONNXBackend::Load(const std::string& model_path, const Device& device,
 
 void ONNXBackend::Forward(
     const std::unordered_map<std::string, Tensor*>& inputs,
-    std::unordered_map<std::string, Tensor*>& outputs) {
-  
-  Ort::MemoryInfo memory_info_cpu = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-  
-  std::vector<const char*> input_names;
-  std::vector<Ort::Value> input_ort_values;
+    std::unordered_map<std::string, std::unique_ptr<Tensor>>& outputs) {
+  std::vector<std::string> output_names_req;
 
-  for (auto const& [name, tensor] : inputs) {
-    input_names.push_back(name.c_str());
-    
-    if (tensor->IsCPU()) {
-        input_ort_values.push_back(Ort::Value::CreateTensor(
-            memory_info_cpu, tensor->Data(), tensor->ByteSize(),
-            tensor->Shape().data(), tensor->Shape().size(), ToOnnxType(tensor->Type())));
-    } else {
-#ifdef WITH_CUDA
-        Ort::MemoryInfo memory_info_cuda("Cuda", OrtAllocatorType::OrtDeviceAllocator, device_.device_id, OrtMemTypeDefault);
-        input_ort_values.push_back(Ort::Value::CreateTensor(
-            memory_info_cuda, tensor->Data(), tensor->ByteSize(),
-            tensor->Shape().data(), tensor->Shape().size(), ToOnnxType(tensor->Type())));
-#else
-        THROW_ERROR("CUDA tensor provided but CUDA backend not enabled");
-#endif
+  if (outputs.empty()) {
+    output_names_req = impl_->output_names;
+  } else {
+    for (const auto& [name, _] : outputs) {
+      output_names_req.push_back(name);
     }
   }
 
-  std::vector<std::string> requested_output_names;
-  std::vector<Ort::AllocatedStringPtr> allocated_names; 
-  if (outputs.empty()) {
-      auto count = impl_->session->GetOutputCount();
-      for (size_t i = 0; i < count; ++i) {
-          auto name = impl_->session->GetOutputNameAllocated(i, Ort::AllocatorWithDefaultOptions());
-          requested_output_names.push_back(name.get());
-          allocated_names.push_back(std::move(name));
-      }
-  } else {
-      for (auto const& [name, _] : outputs) {
-          requested_output_names.push_back(name);
-      }
+  auto result_list = InferCore(impl_.get(), device_, inputs, output_names_req);
+
+  // 结果回填
+  for (size_t i = 0; i < result_list.size(); ++i) {
+    outputs[output_names_req[i]] = std::move(result_list[i]);
   }
+}
 
-  std::vector<const char*> output_names_ptrs;
-  for (const auto& n : requested_output_names) output_names_ptrs.push_back(n.c_str());
-
-  auto output_ort_values = impl_->session->Run(
-      Ort::RunOptions{nullptr}, input_names.data(), input_ort_values.data(),
-      input_ort_values.size(), output_names_ptrs.data(), output_names_ptrs.size());
-
-  for (size_t i = 0; i < output_names_ptrs.size(); ++i) {
-      const char* name = output_names_ptrs[i];
-      auto& val = output_ort_values[i];
-      auto type_info = val.GetTensorTypeAndShapeInfo();
-      auto shape = type_info.GetShape();
-      auto dtype = FromOnnxType(type_info.GetElementType());
-
-      auto mem_info = val.GetTensorMemoryInfo();
-      Device actual_output_device(DeviceType::kCPU);
-      
-      if (mem_info.GetDeviceType() == OrtMemoryInfoDeviceType_GPU || 
-          std::string(mem_info.GetAllocatorName()) == "Cuda") {
-          actual_output_device = Device(DeviceType::kCUDA, mem_info.GetDeviceId());
-      }
-
-      auto* val_ptr = new Ort::Value(std::move(val));
-      auto deleter = [val_ptr](void*) { delete val_ptr; };
-      
-      auto res_tensor = std::make_unique<Tensor>(
-          val_ptr->GetTensorMutableData<void>(), 
-          shape, dtype, actual_output_device, deleter);
-      
-      outputs[name] = res_tensor.release();
-  }
+void ONNXBackend::Forward(const std::unordered_map<std::string, Tensor*>& inputs,
+             std::vector<std::unique_ptr<Tensor>>& outputs) {
+  outputs.clear();
+  auto result_list = InferCore(impl_.get(), device_, inputs, impl_->output_names);
+  outputs = std::move(result_list);
 }
 
 std::vector<std::string> ONNXBackend::GetInputNames() const {

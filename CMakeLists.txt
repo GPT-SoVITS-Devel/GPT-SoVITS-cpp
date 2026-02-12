@@ -15,6 +15,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(USE_ONNX "Build with ONNX Runtime backend" ON)
 option(USE_TENSORRT "Build with TensorRT backend" OFF)
 option(ENABLE_CUDA "Enable CUDA support" OFF)
+option(USE_U8PATH "Enable u8path support" ON)
 # TODO: 预留其他后端选项,如 USE_OPENVINO
 
 # TensorRT 必须依赖 CUDA
@@ -28,6 +29,10 @@ if (NOT USE_ONNX AND NOT USE_TENSORRT)
   message(FATAL_ERROR "At least one inference backend (USE_ONNX or USE_TENSORRT) must be enabled.")
 endif ()
 
+if (USE_U8PATH)
+  add_compile_definitions(_USE_U8PATH_=1)
+endif ()
+
 # ==============================================================================
 # 依赖引入
 # ==============================================================================
@@ -38,6 +43,7 @@ include(cmake/cpp-pinyin.cmake)
 include(cmake/boost-cmake.cmake)
 include(cmake/tokenizers-cpp.cmake)
 include(cmake/libsndfile.cmake)
+include(cmake/libsamplerate.cmake)
 include(cmake/SRELL.cmake)
 include(cmake/xsimd.cmake)
 include(cmake/xtensor.cmake)
@@ -177,6 +183,7 @@ target_link_libraries(gsv_lib PUBLIC
     cppmodule::utfcpp
     cppmodule::cld2_cmake
     cppmodule::cppjieba
+    cppmodule::samplerate
     openjtalk
     ${BACKEND_LIBS}
 )
@@ -253,149 +260,6 @@ if(DEFINED ONNXRUNTIME_PATH)
   )
 endif()
 
-#if (WIN32)
-#  function(copy_dlls_to_runtime_dir search_path pattern)
-#    file(TO_CMAKE_PATH "${search_path}" search_path_normalized)
-#
-#    if (NOT EXISTS "${search_path_normalized}")
-#      return()
-#    endif()
-#
-#    file(GLOB FOUND_DLLS "${search_path_normalized}/${pattern}")
-#
-#    if (NOT FOUND_DLLS)
-#      return()
-#    endif()
-#
-#    foreach(DLL_FILE ${FOUND_DLLS})
-#      add_custom_command(TARGET gsv_lib POST_BUILD
-#          COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#          "${DLL_FILE}"
-#          "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
-#          COMMENT "Setting up runtime env: Copying ${DLL_FILE}"
-#      )
-#    endforeach()
-#  endfunction()
-#
-#  function(setup_backend_runtime)
-#    # ONNX Runtime
-#    if (USE_ONNX AND ONNXRUNTIME_PATH)
-#      copy_dlls_to_runtime_dir("${ONNXRUNTIME_PATH}/lib" "*.dll")
-#      copy_dlls_to_runtime_dir("${ONNXRUNTIME_PATH}/bin" "*.dll")
-#    endif()
-#
-#    # CUDA / TensorRT (逻辑同上，简化展示)
-#    if (ENABLE_CUDA)
-#      # ... 你的 CUDA 查找逻辑 ...
-#      # 记得把里面的 copy_dlls_to_target 替换为 copy_dlls_to_runtime_dir
-#      # 传入路径即可，不需要传 target_name
-#      # 示例:
-#       copy_dlls_to_runtime_dir("${NORMALIZED_PATH}" "cudart64_*.dll")
-#       copy_dlls_to_runtime_dir("${NORMALIZED_PATH}" "cublas64_*.dll")
-#       copy_dlls_to_runtime_dir("${NORMALIZED_PATH}" "cublasLt64_*.dll")
-#       copy_dlls_to_runtime_dir("${NORMALIZED_PATH}" "cufft64_*.dll")
-#       copy_dlls_to_runtime_dir("${NORMALIZED_PATH}" "curand64_*.dll")
-#       copy_dlls_to_runtime_dir("${NORMALIZED_PATH}" "cublasLt64_*.dll")
-#    endif()
-#
-#    if (USE_TENSORRT AND TENSORRT_PATH)
-#      copy_dlls_to_runtime_dir("${TENSORRT_PATH}/lib" "*.dll")
-#    endif()
-#  endfunction()
-#  setup_backend_runtime()
-#
-##  function(copy_dlls_to_target target_name search_path pattern)
-##    # 正常情况下,Windows路径可能包含反斜杠,导致GLOB失败,需转为CMake内部格式
-##    file(TO_CMAKE_PATH "${search_path}" search_path_normalized)
-##
-##    if (NOT EXISTS "${search_path_normalized}")
-##      message(WARNING "[DLL Copy] Path not found: ${search_path_normalized}")
-##      return()
-##    endif()
-##
-##    file(GLOB FOUND_DLLS "${search_path_normalized}/${pattern}")
-##
-##    if (NOT FOUND_DLLS)
-##      message(WARNING "[DLL Copy] No DLLs found in ${search_path_normalized} with pattern ${pattern}")
-##      return()
-##    endif()
-##
-##    # 正常情况下,应打印复制信息以便调试
-##    message(STATUS "[DLL Copy] Found ${pattern} in ${search_path_normalized}, scheduling copy to target: ${target_name}")
-##
-##    foreach(DLL_FILE ${FOUND_DLLS})
-##      # TODO: gsv_lib为静态库时,TargetDir为lib目录; 若需运行exe,需将DLL复制到bin目录或对exe目标调用此函数
-##      add_custom_command(TARGET ${target_name} POST_BUILD
-##          COMMAND ${CMAKE_COMMAND} -E copy_if_different
-##          "${DLL_FILE}"
-##          "$<TARGET_FILE_DIR:${target_name}>"
-##          COMMENT "Copying dependency: ${DLL_FILE}"
-##      )
-##    endforeach()
-##  endfunction()
-##
-##  function(auto_copy_backend_dlls target_name)
-##    message(STATUS "Configuring auto-copy DLLs for target: ${target_name}...")
-##
-##    # Copy ONNX Runtime DLLs
-##    if (USE_ONNX AND ONNXRUNTIME_PATH)
-##      copy_dlls_to_target(${target_name} "${ONNXRUNTIME_PATH}/lib" "*.dll")
-##      copy_dlls_to_target(${target_name} "${ONNXRUNTIME_PATH}/bin" "*.dll")
-##    endif()
-##
-##    if (ENABLE_CUDA)
-##      set(CUDA_SEARCH_PATHS "")
-##
-##      if (CUDAToolkit_LIBRARY_ROOT)
-##        list(APPEND CUDA_SEARCH_PATHS "${CUDAToolkit_LIBRARY_ROOT}/bin")
-##        list(APPEND CUDA_SEARCH_PATHS "${CUDAToolkit_LIBRARY_ROOT}/bin/x64")
-##      endif()
-##
-##      if (DEFINED ENV{CUDA_PATH})
-##        list(APPEND CUDA_SEARCH_PATHS "$ENV{CUDA_PATH}/bin")
-##        list(APPEND CUDA_SEARCH_PATHS "$ENV{CUDA_PATH}/bin/x64")
-##      endif()
-##
-##      list(REMOVE_DUPLICATES CUDA_SEARCH_PATHS)
-##
-##      foreach(SEARCH_PATH ${CUDA_SEARCH_PATHS})
-##        # 规范化路径，处理斜杠差异
-##        get_filename_component(NORMALIZED_PATH "${SEARCH_PATH}" ABSOLUTE)
-##
-##        if (EXISTS "${NORMALIZED_PATH}")
-##          # message(STATUS "Searching CUDA DLLs in: ${NORMALIZED_PATH}")
-##
-##          copy_dlls_to_target(${target_name} "${NORMALIZED_PATH}" "cudart64_*.dll")
-##          copy_dlls_to_target(${target_name} "${NORMALIZED_PATH}" "cublas64_*.dll")
-##          copy_dlls_to_target(${target_name} "${NORMALIZED_PATH}" "cublasLt64_*.dll")
-##          copy_dlls_to_target(${target_name} "${NORMALIZED_PATH}" "cufft64_*.dll")
-##          copy_dlls_to_target(${target_name} "${NORMALIZED_PATH}" "curand64_*.dll")
-##          copy_dlls_to_target(${target_name} "${NORMALIZED_PATH}" "cublasLt64_*.dll")
-##
-##          # cuDNN
-##          if (NOT CUDNN_PATH)
-##            copy_dlls_to_target(${target_name} "${NORMALIZED_PATH}" "cudnn*.dll")
-##          endif()
-##        endif()
-##      endforeach()
-##
-##      # 如果显式指定了 CUDNN_PATH
-##      if (CUDNN_PATH)
-##        copy_dlls_to_target(${target_name} "${CUDNN_PATH}/bin" "cudnn*.dll")
-##        copy_dlls_to_target(${target_name} "${CUDNN_PATH}/lib" "cudnn*.dll")
-##      endif()
-##    endif()
-##
-##    # TensorRT DLLs
-##    if (USE_TENSORRT AND TENSORRT_PATH)
-##      copy_dlls_to_target(${target_name} "${TENSORRT_PATH}/lib" "*.dll")
-##      copy_dlls_to_target(${target_name} "${TENSORRT_PATH}/bin" "*.dll")
-##    endif()
-##  endfunction()
-##
-##  # 正常情况下,只有当 gsv_lib 为 SHARED 库时,复制到其目录才有运行时意义
-##  auto_copy_backend_dlls(gsv_lib)
-#endif()
 
 if (NOT NO_TEST)
   include(example/example_all.cmake)

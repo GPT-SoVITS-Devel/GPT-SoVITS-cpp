@@ -1,5 +1,5 @@
 //
-// Created by 19254 on 24-12-13.
+// Created by Huiyicc on 24-12-13.
 //
 #include "jpcommon/jpcommon.h"
 #include "mecab/src/mecab.h"

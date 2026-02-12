@@ -1,5 +1,5 @@
 //
-// Created by 19254 on 2026/2/5.
+// Created by Huiyicc on 2026/2/5.
 //
 #include <GPTSoVITS/model/CNBertModel.h>
 
@@ -51,19 +51,15 @@ std::unique_ptr<Tensor> CNBertModel::GetBertFeature(
       {"attention_mask", in_mask.get()},
       {"token_type_ids", in_type.get()}};
 
-  std::unordered_map<std::string, Tensor*> outputs;
+  std::unordered_map<std::string, std::unique_ptr<Tensor>> outputs;
   m_model->Forward(inputs, outputs);
 
   auto it = outputs.find("hidden_states");
   if (it == outputs.end()) {
-    for (auto& pair : outputs) delete pair.second;
     THROW_ERRORN("BERT model output 'hidden_states' not found.");
   }
 
-  std::unique_ptr<Tensor> raw_hidden(it->second);
-  for (auto& pair : outputs) {
-    if (pair.first != "hidden_states") delete pair.second;
-  }
+  std::unique_ptr<Tensor> raw_hidden = std::move(it->second);
 
   // 统一转为 Float32 处理 (CPU)
   auto cpu_hidden = raw_hidden->To(Device(DeviceType::kCPU), DataType::kFloat32);

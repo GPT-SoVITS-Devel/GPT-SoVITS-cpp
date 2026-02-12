@@ -10,7 +10,12 @@ add_executable(gpt_sovits_cpp_test_bert example/model/bert.cpp)
 target_link_libraries(gpt_sovits_cpp_test_bert PUBLIC gsv_lib)
 
 
+add_executable(gpt_sovits_cpp_test_pipline_cpp example/pipline_cpp/gsv.cpp)
+target_link_libraries(gpt_sovits_cpp_test_pipline_cpp PUBLIC gsv_lib)
+
+
 if (WIN32 AND COMMAND auto_copy_backend_dlls)
   auto_copy_backend_dlls(gpt_sovits_cpp_test_clean_text)
   auto_copy_backend_dlls(gpt_sovits_cpp_test_bert)
+  auto_copy_backend_dlls(gpt_sovits_cpp_test_pipline_cpp)
 endif()

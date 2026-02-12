@@ -1,5 +1,5 @@
 //
-// Created by 19254 on 2026/1/10.
+// Created by Huiyicc on 2026/1/10.
 //
 
 #ifndef GPT_SOVITS_CPP_MODEL_BASE_H
@@ -36,7 +36,10 @@ public:
    * @param outputs outputs
    */
   virtual void Forward(const std::unordered_map<std::string, Tensor*>& inputs,
-                       std::unordered_map<std::string, Tensor*>& outputs) = 0;
+                       std::unordered_map<std::string, std::unique_ptr<Tensor>>& outputs) = 0;
+
+  virtual void Forward(const std::unordered_map<std::string, Tensor*>& inputs,
+             std::vector<std::unique_ptr<Tensor>>& outputs) = 0;
 
   /**
    * @brief Get input names

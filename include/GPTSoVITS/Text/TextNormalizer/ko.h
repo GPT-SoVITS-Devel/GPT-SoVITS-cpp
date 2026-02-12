@@ -1,5 +1,5 @@
 //
-// Created by 19254 on 24-12-12.
+// Created by Huiyicc on 24-12-12.
 //
 
 #ifndef GPT_SOVITS_CPP_KO_H

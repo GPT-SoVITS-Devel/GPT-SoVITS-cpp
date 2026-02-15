@@ -13,6 +13,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 编译选项配置
 # ==============================================================================
 option(USE_ONNX "Build with ONNX Runtime backend" ON)
+option(USE_SYSTEM_ONNXRUNTIME "Prefer system ONNX Runtime over manual path" OFF)
+option(ONNXRUNTIME_LIB_PATH "ONNX Runtime Lib PATH" "")
+option(ONNXRUNTIME_INCLUDE_PATH "ONNX Runtime Include PATH" "")
+option(USE_ONNX "Build with ONNX Runtime backend" ON)
 option(USE_TENSORRT "Build with TensorRT backend" OFF)
 option(ENABLE_CUDA "Enable CUDA support" OFF)
 option(USE_U8PATH "Enable u8path support" ON)
@@ -114,19 +118,59 @@ endif ()
 # ONNX Runtime 配置
 # -----------------
 if (USE_ONNX)
-  if (NOT ONNXRUNTIME_PATH)
-    message(FATAL_ERROR "USE_ONNX is ON but ONNXRUNTIME_PATH is not defined.")
-  endif ()
-
   target_compile_definitions(gsv_lib PUBLIC WITH_ONNX)
-  target_include_directories(gsv_lib PUBLIC ${ONNXRUNTIME_PATH}/include)
-  target_link_directories(gsv_lib PUBLIC ${ONNXRUNTIME_PATH}/lib)
+  set(ORT_FOUND FALSE)
 
-  # 基础库
-  list(APPEND BACKEND_LIBS onnxruntime onnxruntime_providers_shared)
+  if (USE_SYSTEM_ONNXRUNTIME)
+    find_package(onnxruntime REQUIRED)
+    if (onnxruntime_FOUND)
+      message(STATUS "Found system ONNX Runtime via Config.")
 
-  if (ENABLE_CUDA)
-    list(APPEND BACKEND_LIBS onnxruntime_providers_cuda)
+      target_link_libraries(gsv_lib PUBLIC onnxruntime)
+      set(ORT_FOUND TRUE)
+    else()
+      find_path(ORT_INC_SYSTEM
+              NAMES onnxruntime_c_api.h
+              PATHS ${HOMEBREW_PREFIX}/include/onnxruntime /usr/local/include/onnxruntime
+              PATH_SUFFIXES onnxruntime)
+
+      find_library(ORT_LIB_SYSTEM
+              NAMES onnxruntime
+              PATHS ${HOMEBREW_PREFIX}/lib /usr/local/lib)
+
+      if (ORT_LIB_SYSTEM AND ORT_INC_SYSTEM)
+        message(STATUS "Found system ONNX Runtime: ${ORT_INC_SYSTEM}")
+        target_include_directories(gsv_lib PUBLIC ${ORT_INC_SYSTEM})
+        target_link_libraries(gsv_lib PUBLIC ${ORT_LIB_SYSTEM})
+        set(ORT_FOUND TRUE)
+      endif()
+    endif()
+  endif()
+
+  # 手动路径模式
+  if (NOT ORT_FOUND)
+#    if (NOT ONNXRUNTIME_PATH AND (NOT ONNXRUNTIME_INCLUDE_PATH OR NOT ONNXRUNTIME_LIB_PATH))
+#      message(FATAL_ERROR "USE_ONNX is ON but ONNXRUNTIME_PATH/ONNXRUNTIME_INCLUDE_PATH/ONNXRUNTIME_LIB_PATH is not defined and system ORT not found.")
+#    endif ()
+
+    message(STATUS "Using manual ONNX Runtime path: ${ONNXRUNTIME_PATH}")
+    target_include_directories(gsv_lib PUBLIC ${ONNXRUNTIME_PATH}/include)
+    target_link_directories(gsv_lib PUBLIC ${ONNXRUNTIME_PATH}/lib)
+
+    # 基础库
+    list(APPEND BACKEND_LIBS onnxruntime)
+    if()
+      list(APPEND BACKEND_LIBS onnxruntime_providers_shared)
+    endif ()
+    if (ENABLE_CUDA)
+      list(APPEND BACKEND_LIBS onnxruntime_providers_cuda)
+    endif ()
+  endif()
+  if (ONNXRUNTIME_INCLUDE_PATH)
+    target_include_directories(gsv_lib PUBLIC ${ONNXRUNTIME_INCLUDE_PATH})
+  endif ()
+  if (ONNXRUNTIME_LIB_PATH)
+    target_link_libraries(gsv_lib PUBLIC ${ONNXRUNTIME_LIB_PATH})
   endif ()
 endif ()
 

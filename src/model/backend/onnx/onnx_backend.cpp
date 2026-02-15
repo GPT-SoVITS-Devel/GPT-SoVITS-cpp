@@ -150,7 +150,7 @@ bool ONNXBackend::Load(const std::string& model_path, const Device& device,
   this->device_ = device;
   try {
     Ort::SessionOptions options;
-    options.SetLogSeverityLevel(0);
+    // options.SetLogSeverityLevel(0);
     options.SetIntraOpNumThreads(work_thread_num);
     options.SetInterOpNumThreads(work_thread_num);
     options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
@@ -162,8 +162,13 @@ bool ONNXBackend::Load(const std::string& model_path, const Device& device,
       options.AppendExecutionProvider_CUDA(cuda_options);
     }
 #endif
+#ifdef _WIN32
     impl_->session = std::make_unique<Ort::Session>(
         impl_->env, Text::Utf8ToWstring(model_path).c_str(), options);
+#else
+    impl_->session = std::make_unique<Ort::Session>(
+    impl_->env, model_path.c_str(), options);
+#endif
 
     // 收集输入信息
     auto input_count = impl_->session->GetInputCount();

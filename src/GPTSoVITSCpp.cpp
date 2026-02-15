@@ -25,7 +25,8 @@ const SpeakerInfo& GPTSoVITSPipline::CreateSpeaker(
   info.m_speaker_16k = refAudio->ReSample(16000);
   info.m_speaker_lang = ref_audio_lang;
   info.m_ssl_content = m_ssl_model->GetSSLContent(info.m_speaker_16k->ReadSamples());
-  m_vq_model->GetVQCodes(info.m_ssl_content.get());
+  info.m_vq_codes = m_vq_model->GetVQCodes(info.m_ssl_content.get());
+  // TODO: 要删除第一个维度
   m_speaker_map[speaker_name] = std::move(info);
   return m_speaker_map[speaker_name];
 }

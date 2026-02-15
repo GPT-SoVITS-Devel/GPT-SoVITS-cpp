@@ -26,6 +26,7 @@ class SpeakerInfo {
   std::string m_speaker_name;
   std::string m_speaker_lang;
   std::unique_ptr<Model::Tensor> m_ssl_content;
+  std::unique_ptr<Model::Tensor> m_vq_codes;
   std::unique_ptr<AudioTools> m_speaker_16k;
   std::unique_ptr<AudioTools> m_speaker_32k;
 

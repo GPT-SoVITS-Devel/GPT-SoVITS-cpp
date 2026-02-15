@@ -8,23 +8,21 @@
 namespace GPTSoVITS::Model {
 
 std::unique_ptr<Tensor> VQModel::GetVQCodes(Tensor* ssl_content) {
-  // Device model_device = ssl_content.GetDevice();
-  // auto ssl_content =
-  //     input_audio_16k->To(model_device, m_model->GetInputDataType("audio"));
-  try {
-    std::unordered_map<std::string, Tensor*> inputs = {
-        {"ssl_content", ssl_content},
-    };
-    std::vector<std::unique_ptr<Tensor>> outputs;
-    auto ips = m_model->GetInputNames();
-    for (auto& i : ips) {
-      PrintDebug("n: [{}]{}", (int)m_model->GetInputDataType(i), i);
-    }
-    m_model->Forward(inputs, outputs);
-  } catch (const std::exception& e) {
-    PrintError("e:{}", e.what());
+  Tensor* sslPtr = nullptr;
+  std::unique_ptr<Tensor> ssl;
+  if (ssl_content->Type() == m_model->GetInputDataType("ssl_content")) {
+    sslPtr = ssl_content;
+  } else {
+    ssl = ssl_content->ToType(m_model->GetInputDataType("ssl_content"));
+    sslPtr = ssl.get();
   }
-  return nullptr;
+
+  std::unordered_map<std::string, Tensor*> inputs = {
+      {"ssl_content", sslPtr},
+  };
+  std::unordered_map<std::string,std::unique_ptr<Tensor>> outputs;
+  m_model->Forward(inputs, outputs);
+   return std::move(outputs["codes"]);
 };
 
 }  // namespace GPTSoVITS::Model

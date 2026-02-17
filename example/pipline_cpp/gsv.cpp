@@ -63,6 +63,8 @@ int main() {
 
   gsv.CreateSpeaker(
       "firefly", "zh",
-      FS_PATH(R"(/Users/huiyi/code/python/GPT-SoVITS_minimal_inference/pretrained_models/看，这尊雕像就是匹诺康尼大名鼎鼎的卡通人物钟表小子.wav)").string(),
+      FS_PATH(R"(/Users/huiyi/code/python/GPT-SoVITS_minimal_inference/pretrained_models/看，这尊雕像就是匹诺康尼大名鼎鼎的卡通人物钟表小子.wav)"),
       "看，这尊雕像就是匹诺康尼大名鼎鼎的卡通人物钟表小子");
+
+  return 0;
 }

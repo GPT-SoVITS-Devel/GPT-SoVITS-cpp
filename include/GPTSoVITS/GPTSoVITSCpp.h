@@ -25,6 +25,7 @@ class GPTSoVITSPipline;
 class SpeakerInfo {
   std::string m_speaker_name;
   std::string m_speaker_lang;
+  std::shared_ptr<Bert::BertRes> m_bert_res;
   std::unique_ptr<Model::Tensor> m_ssl_content;
   std::unique_ptr<Model::Tensor> m_vq_codes;
   std::unique_ptr<AudioTools> m_speaker_16k;
@@ -49,7 +50,7 @@ public:
 
   const SpeakerInfo& CreateSpeaker(const std::string& speaker_name,
                                    const std::string& ref_audio_lang,
-                                   const std::string& ref_audio_path,
+                                   const std::filesystem::path& ref_audio_path,
                                    const std::string& ref_audio_text);
 
 private:

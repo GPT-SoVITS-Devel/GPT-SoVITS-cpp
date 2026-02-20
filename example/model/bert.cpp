@@ -21,6 +21,12 @@ auto device = GPTSoVITS::Model::Device(GPTSoVITS::Model::DeviceType::kCUDA, 0);
 auto device = GPTSoVITS::Model::Device(GPTSoVITS::Model::DeviceType::kCPU, 0);
 #endif
 
+#ifdef _HOST_WINDOWS_
+#define MODEL_PATH R"(F:\Engcode\AIAssistant\GPT-SoVITS-Devel\GPT-SoVITS_minimal_inference\onnx_export\firefly_v2_proplus_fp16)"
+#else
+#define MODEL_PATH R"(/Users/huiyi/code/python/GPT-SoVITS_minimal_inference/onnx_export/firefly_v2_proplus_fp16)"
+#endif
+
 int main() {
 #ifdef _WIN32
   std::system("chcp 65001");
@@ -34,7 +40,7 @@ int main() {
   auto bert_model = std::make_unique<CNBertModel>();
 
   std::string bert_path =
-      R"(/Users/huiyi/code/python/GPT-SoVITS_minimal_inference/onnx_export/firefly_v2_proplus_fp16/bert.onnx)";
+      MODEL_PATH R"(/bert.onnx)";
 
   std::string tokenizer_path =
       (GPTSoVITS::g_globalResourcesPath / "bert_tokenizer.json").string();
@@ -82,14 +88,15 @@ int main() {
       return true;
     });
 
+    // std::string test_strs =
+    //     "皆さん、我在インターネット上看到someone把几国language混在一起speak。我看到之后be like：それは我じゃないか！私もtry一tryです。\n"
+    //     "虽然是混乱している句子ですけど、中文日本語プラスEnglish、挑戦スタート！\n"
+    //     "我study日本語的时候，もし有汉字，我会很happy。\n"
+    //     "Bueause中国人として、when I see汉字，すぐに那个汉字がわかります。\n"
+    //     "But 我hate外来語、什么マクドナルド、スターバックス、グーグル、ディズニーランド、根本记不住カタカナhow to写、太難しい。\n"
+    //     "2021年6月25日,今天32°C。以上です，byebye！";
     std::string test_strs =
-        "皆さん、我在インターネット上看到someone把几国language混在一起speak。我看到之后be like：それは我じゃないか！私もtry一tryです。\n"
-        "虽然是混乱している句子ですけど、中文日本語プラスEnglish、挑戦スタート！\n"
-        "我study日本語的时候，もし有汉字，我会很happy。\n"
-        "Bueause中国人として、when I see汉字，すぐに那个汉字がわかります。\n"
-        "But 我hate外来語、什么マクドナルド、スターバックス、グーグル、ディズニーランド、根本记不住カタカナhow to写、太難しい。\n"
-        "2021年6月25日,今天32°C。以上です，byebye！";
-
+        "你好，这是一段测试文本。";
     PrintInfo("Starting streaming text input simulation...");
 
     auto u32t = StringToU32String(test_strs);

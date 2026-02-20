@@ -6,7 +6,6 @@
 #define GPT_SOVITS_CPP_TEXT_NORMALIZER_EN_H
 
 #include <regex>
-#include "srell.hpp"
 
 namespace GPTSoVITS::Text {
 

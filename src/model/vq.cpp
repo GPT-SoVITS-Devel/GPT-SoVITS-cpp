@@ -20,9 +20,20 @@ std::unique_ptr<Tensor> VQModel::GetVQCodes(Tensor* ssl_content) {
   std::unordered_map<std::string, Tensor*> inputs = {
       {"ssl_content", sslPtr},
   };
-  std::unordered_map<std::string,std::unique_ptr<Tensor>> outputs;
+  std::unordered_map<std::string, std::unique_ptr<Tensor>> outputs;
   m_model->Forward(inputs, outputs);
-   return std::move(outputs["codes"]);
+  
+  auto it = outputs.find("codes");
+  if (it != outputs.end()) {
+    return std::move(it->second);
+  }
+  
+  // 返回第一个输出
+  if (!outputs.empty()) {
+    return std::move(outputs.begin()->second);
+  }
+  
+  return nullptr;
 };
 
 }  // namespace GPTSoVITS::Model

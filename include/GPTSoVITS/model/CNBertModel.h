@@ -11,12 +11,15 @@
 
 #include "GPTSoVITS/G2P/Base.h"
 #include "GPTSoVITS/Utils/exception.h"
-#include "tokenizers_cpp.h"
+
+namespace tokenizers {
+class Tokenizer;
+}
 
 namespace GPTSoVITS::Model {
 
 class CNBertModel : public BertModel {
-  std::unique_ptr<tokenizers::Tokenizer> m_tokenzer;
+  std::shared_ptr<tokenizers::Tokenizer> m_tokenzer;
 
 public:
   CNBertModel();

@@ -50,13 +50,13 @@ GPTSoVITSPipline::GPTSoVITSPipline(
   // 检测模型精度
   DetectModelPrecision();
 
-  PrintInfo("GPT-SoVITS Pipeline initialized:");
-  PrintInfo("  Model version: {}", m_model_version);
-  PrintInfo("  Sampling rate: {} Hz", m_sampling_rate);
-  PrintInfo("  Max sequence length: {}", m_max_len);
-  PrintInfo("  Compute precision: {}",
+  PrintDebug("GPT-SoVITS Pipeline initialized:");
+  PrintDebug("  Model version: {}", m_model_version);
+  PrintDebug("  Sampling rate: {} Hz", m_sampling_rate);
+  PrintDebug("  Max sequence length: {}", m_max_len);
+  PrintDebug("  Compute precision: {}",
             m_compute_precision == Model::DataType::kFloat16 ? "FP16" : "FP32");
-  PrintInfo("  SV embedding dim: {}", m_sv_dim);
+  PrintDebug("  SV embedding dim: {}", m_sv_dim);
 }
 
 const SpeakerInfo& GPTSoVITSPipline::CreateSpeaker(
@@ -68,7 +68,7 @@ const SpeakerInfo& GPTSoVITSPipline::CreateSpeaker(
     return iter->second;
   }
 
-  PrintInfo("Creating new speaker: {}", speaker_name);
+  PrintDebug("Creating new speaker: {}", speaker_name);
 
   SpeakerInfo info;
   info.m_speaker_name = speaker_name;
@@ -77,7 +77,14 @@ const SpeakerInfo& GPTSoVITSPipline::CreateSpeaker(
   auto refAudio = AudioTools::FromFile(ref_audio_path.string());
 
   auto audio16k = refAudio->ReSample(16000);
-  info.m_speaker_16k = std::move(audio16k);
+  auto samples16k_raw = audio16k->ReadSamples();
+  
+  // 给16k音频增加0.3s静音填充, 仅用于 SSL/VQ 提取, 匹配Python端行为
+  auto samples16k_padded = samples16k_raw;
+  size_t padding_size = static_cast<size_t>(16000 * 0.3);
+  samples16k_padded.insert(samples16k_padded.end(), padding_size, 0.0f);
+  
+  info.m_speaker_16k = AudioTools::FromByte(samples16k_padded, 16000);
 
   // 32k (or native sr) for SoVITS
   info.m_speaker_32k = refAudio->ReSample(32000);
@@ -89,13 +96,38 @@ const SpeakerInfo& GPTSoVITSPipline::CreateSpeaker(
   // get ssl and vq codes
   info.m_ssl_content =
       m_ssl_model->GetSSLContent(info.m_speaker_16k->ReadSamples());
-  info.m_vq_codes = m_vq_model->GetVQCodes(info.m_ssl_content.get());
-
-  // reshape vq_codes from [1, 1, T] to [1, T] if needed
-  if (info.m_vq_codes->Shape().size() == 3 &&
-      info.m_vq_codes->Shape()[0] == 1 && info.m_vq_codes->Shape()[1] == 1) {
-    info.m_vq_codes->Reshape({1, info.m_vq_codes->Shape()[2]});
+  auto vq_raw = m_vq_model->GetVQCodes(info.m_ssl_content.get());
+  if (!vq_raw) {
+    THROW_ERRORN("Failed to get VQ codes for speaker {}", speaker_name);
   }
+
+  // prompt_semantic = codes[0, 0][None, :]
+  if (vq_raw->Shape().size() == 3) {
+    auto shape = vq_raw->Shape();
+    int64_t B = shape[0];
+    int64_t K = shape[1];
+    int64_t T = shape[2];
+    PrintInfo("  VQ raw shape: [{}, {}, {}]", B, K, T);
+    
+    auto sliced = Model::Tensor::Empty({1, T}, Model::DataType::kInt64, Model::DeviceType::kCPU);
+    auto vq_cpu = vq_raw->To(Model::Device(Model::DeviceType::kCPU), Model::DataType::kInt64);
+    std::memcpy(sliced->Data<int64_t>(), vq_cpu->Data<int64_t>(), T * sizeof(int64_t));
+    info.m_vq_codes = std::move(sliced);
+  } else if (vq_raw->Shape().size() == 2 && vq_raw->Shape()[0] > 1) {
+    auto T = vq_raw->Shape()[1];
+    auto sliced = Model::Tensor::Empty({1, T}, Model::DataType::kInt64, Model::DeviceType::kCPU);
+    auto vq_cpu = vq_raw->To(Model::Device(Model::DeviceType::kCPU), Model::DataType::kInt64);
+    std::memcpy(sliced->Data<int64_t>(), vq_cpu->Data<int64_t>(), T * sizeof(int64_t));
+    info.m_vq_codes = std::move(sliced);
+  } else {
+    info.m_vq_codes = std::move(vq_raw);
+    if (info.m_vq_codes->Shape().size() == 1) {
+      info.m_vq_codes->Reshape({1, info.m_vq_codes->Shape()[0]});
+    }
+  }
+
+  PrintDebug("  Final VQ codes shape: [{}, {}]",
+            info.m_vq_codes->Shape()[0], info.m_vq_codes->Shape()[1]);
 
   auto sr = m_config->data["data"].value<int>("sampling_rate", 32000);
 
@@ -106,8 +138,9 @@ const SpeakerInfo& GPTSoVITSPipline::CreateSpeaker(
         {info.m_refer_spec->Shape()[1], info.m_refer_spec->Shape()[2]});
   }
 
+  // SV embedding
   info.m_sv_emb =
-      m_sv_embedding_model->ComputeEmbedding(info.m_speaker_16k->ReadSamples());
+      m_sv_embedding_model->ComputeEmbedding(samples16k_raw);
   if (info.m_sv_emb->Shape().size() == 2) {
     info.m_sv_emb->Reshape({info.m_sv_emb->Shape()[1]});
   }
@@ -128,7 +161,7 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
 
   const auto& speaker_info = iter->second;
 
-  PrintInfo("Starting inference for speaker: {}", speaker_name);
+  PrintDebug("Starting inference for speaker: {}", speaker_name);
 
   // Use Text::Sentence for multi-language text splitting
   Text::Sentence sentence(Text::Sentence::SentenceSplitMethod::Punctuation);
@@ -136,10 +169,9 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
   std::vector<std::string> segments;
   std::vector<std::shared_ptr<Bert::BertRes>> segment_bert_res;
 
-  // Set callback to collect segments and process them
   sentence.AppendCallBack([this, &segments, &segment_bert_res,
                            &text_lang](const std::string& seg) -> bool {
-    PrintInfo(">>> [Segment Split] Processing: {}", seg);
+    PrintDebug(">>> [Segment Split] Processing: {}", seg);
     segments.push_back(seg);
     try {
       // Get phones and bert for target text
@@ -152,7 +184,6 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
     return true;
   });
 
-  // Process text through sentence splitter
   sentence.Append(text);
   sentence.Flush();
 
@@ -161,7 +192,7 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
     return nullptr;
   }
 
-  PrintInfo("Processing {} text segments", segments.size());
+  PrintDebug("Processing {} text segments", segments.size());
 
   std::vector<float> final_audio;
 
@@ -182,85 +213,77 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
     auto all_phones = ConcatTensor(ref_phones.get(), target_phones.get(), 0);
     auto all_bert = ConcatTensor(ref_bert.get(), target_bert.get(), 1);
 
-    // Debug: 检查bert形状
-    PrintInfo("  ref_bert shape: [{}, {}, {}]",
+    PrintDebug("  ref_bert shape: [{}, {}, {}]",
               ref_bert->Shape().size() > 0 ? ref_bert->Shape()[0] : 0,
               ref_bert->Shape().size() > 1 ? ref_bert->Shape()[1] : 0,
               ref_bert->Shape().size() > 2 ? ref_bert->Shape()[2] : 0);
-    PrintInfo("  target_bert shape: [{}, {}, {}]",
+    PrintDebug("  target_bert shape: [{}, {}, {}]",
               target_bert->Shape().size() > 0 ? target_bert->Shape()[0] : 0,
               target_bert->Shape().size() > 1 ? target_bert->Shape()[1] : 0,
               target_bert->Shape().size() > 2 ? target_bert->Shape()[2] : 0);
-    PrintInfo("  all_bert (before reshape) shape: [{}, {}, {}]",
+    PrintDebug("  all_bert (before reshape) shape: [{}, {}, {}]",
               all_bert->Shape().size() > 0 ? all_bert->Shape()[0] : 0,
               all_bert->Shape().size() > 1 ? all_bert->Shape()[1] : 0,
               all_bert->Shape().size() > 2 ? all_bert->Shape()[2] : 0);
 
-    // Python代码中的形状是 [1, 1024, seq_len]
-    // bert是从BertRes获取的，形状可能是 [1024, seq_len]
-    // 需要添加batch维度
     if (all_bert->Shape().size() == 2) {
       all_bert->Reshape({1, all_bert->Shape()[0], all_bert->Shape()[1]});
-      PrintInfo("  Reshaped all_bert to: [{}, {}, {}]",
+      PrintDebug("  Reshaped all_bert to: [{}, {}, {}]",
                 all_bert->Shape()[0], all_bert->Shape()[1], all_bert->Shape()[2]);
     }
 
-    // 准备输入时使用正确的数据类型（根据模型精度）
+    // 准备输入时使用正确的数据类型
     auto compute_dtype = GetComputeDataType();
 
-    // 优化：提前将all_bert转换为模型期望的精度，避免在GPTEncoder中进行冗余转换
-    // BERT输出是float32，但GPT模型可能期望float16
     if (all_bert->Type() != compute_dtype) {
-      PrintInfo("  Converting bert_feature from {} to {} for GPT Encoder",
+      PrintDebug("  Converting bert_feature from {} to {} for GPT Encoder",
                 all_bert->Type() == Model::DataType::kFloat32 ? "float32" : "float16",
                 compute_dtype == Model::DataType::kFloat32 ? "float32" : "float16");
       all_bert = all_bert->To(all_bert->GetDevice(), compute_dtype);
     }
 
-    // Prepare phoneme_ids and prompts on CPU first
-    auto all_phones_cpu = all_phones->ToCPU();
-    auto phoneme_ids =
-        Model::Tensor::Empty({1, all_phones_cpu->Shape()[0]},
-                             Model::DataType::kInt64, Model::DeviceType::kCPU);
-    auto phoneme_ids_len = Model::Tensor::Empty({1}, Model::DataType::kInt64,
-                                                Model::DeviceType::kCPU);
+    // phoneme_ids (1, seq_len)
+    auto phoneme_ids = all_phones->To(Model::Device(Model::DeviceType::kCPU), Model::DataType::kInt64);
+    if (phoneme_ids->Shape().size() == 1) {
+      phoneme_ids->Reshape({1, phoneme_ids->Shape()[0]});
+    }
 
-    std::memcpy(phoneme_ids->Data<int64_t>(), all_phones_cpu->Data<int64_t>(),
-                all_phones_cpu->ByteSize());
-    phoneme_ids_len->At<int64_t>(0) = all_phones_cpu->Shape()[0];
+    // prompts (1, prompt_len)
+    auto prompts = speaker_info.m_vq_codes->To(Model::Device(Model::DeviceType::kCPU), Model::DataType::kInt64);
+    if (prompts->Shape().size() == 1) {
+      prompts->Reshape({1, prompts->Shape()[0]});
+    }
 
-    // 准备prompts (确保在CPU上)
-    auto prompts_cpu = speaker_info.m_vq_codes->ToCPU();
-    auto prompts =
-        Model::Tensor::Empty({1, prompts_cpu->Shape()[1]},
-                             Model::DataType::kInt64, Model::DeviceType::kCPU);
-    std::memcpy(prompts->Data<int64_t>(),
-                prompts_cpu->Data<int64_t>(),
-                prompts_cpu->ByteSize());
-
-    // Debug: 打印输入信息
-    PrintInfo("  GPT Encoder inputs:");
-    PrintInfo("    phoneme_ids shape: [{}, {}], dtype: int64",
-              phoneme_ids->Shape()[0], phoneme_ids->Shape()[1]);
-    PrintInfo("    prompts shape: [{}, {}], dtype: int64",
-              prompts->Shape()[0], prompts->Shape()[1]);
-    PrintInfo("    bert_feature shape: [{}, {}, {}], dtype: {}",
+    PrintDebug("  GPT Encoder inputs:");
+    PrintDebug("    phoneme_ids shape: [{}, {}], dtype: {}",
+              phoneme_ids->Shape()[0], phoneme_ids->Shape()[1],
+              phoneme_ids->Type() == Model::DataType::kInt64 ? "int64" : "other");
+    if (phoneme_ids->ElementCount() > 5) {
+      auto* p_ids = phoneme_ids->Data<int64_t>();
+      PrintDebug("    phoneme_ids[0..4]: {}, {}, {}, {}, {}", p_ids[0], p_ids[1], p_ids[2], p_ids[3], p_ids[4]);
+    }
+    PrintDebug("    prompts shape: [{}, {}], dtype: {}",
+              prompts->Shape()[0], prompts->Shape()[1],
+              prompts->Type() == Model::DataType::kInt64 ? "int64" : "other");
+    if (prompts->ElementCount() > 5) {
+      auto* p_prompts = prompts->Data<int64_t>();
+      PrintDebug("    prompts[0..4]: {}, {}, {}, {}, {}", p_prompts[0], p_prompts[1], p_prompts[2], p_prompts[3], p_prompts[4]);
+    }
+    PrintDebug("    bert_feature shape: [{}, {}, {}], dtype: {}",
               all_bert->Shape()[0], all_bert->Shape()[1], all_bert->Shape()[2],
               all_bert->Type() == Model::DataType::kFloat16 ? "float16" : "float32");
-
 
     // Run GPT Encoder
     auto encoder_output = m_gpt_encoder_model->Encode(
         phoneme_ids.get(), prompts.get(), all_bert.get());
 
-    // Debug: 检查encoder输出
     if (encoder_output.topk_values && encoder_output.topk_values->ElementCount() > 0) {
       auto topk_values_cpu = encoder_output.topk_values->To(
           Model::Device(Model::DeviceType::kCPU), Model::DataType::kFloat32);
       const float* enc_values = topk_values_cpu->Data<float>();
       int enc_k = topk_values_cpu->ElementCount();
       
-      PrintInfo("  GPT Encoder topk_values[0..5]: {:.4f}, {:.4f}, {:.4f}, {:.4f}, {:.4f}",
+      PrintDebug("  GPT Encoder topk_values[0..5]: {:.4f}, {:.4f}, {:.4f}, {:.4f}, {:.4f}",
                 enc_values[0], enc_values[1], enc_values[2], enc_values[3], enc_values[4]);
 
       bool enc_has_nan = false;
@@ -280,7 +303,7 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
         SampleTopK(encoder_output.topk_values.get(),
                    encoder_output.topk_indices.get(), temperature);
 
-    PrintInfo("  First sampled token: {}", first_token);
+    PrintDebug("  First sampled token: {}", first_token);
 
     // Prepare semantic list
     std::vector<std::unique_ptr<Model::Tensor>> decoded_semantic_list;
@@ -290,7 +313,7 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
         {1, 1}, Model::DataType::kInt64, Model::DeviceType::kCPU);
     first_token_tensor->At<int64_t>(0) = first_token;
 
-    // GPT Step loop - 必须在move之前clone
+    // GPT Step loop
     auto current_samples = first_token_tensor->Clone();
 
     decoded_semantic_list.push_back(std::move(first_token_tensor));
@@ -310,15 +333,14 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
                                              Model::DeviceType::kCPU);
       idx_tensor->At<int64_t>(0) = i;
 
-      // Debug: 首次step打印输入信息
       if (i == 0) {
-        PrintInfo("  GPT Step #0: idx={}, current_samples={}",
+        PrintDebug("  GPT Step #0: idx={}, current_samples={}",
                   idx_tensor->At<int64_t>(0), current_samples->At<int64_t>(0));
         if (x_len && x_len->ElementCount() > 0) {
-          PrintInfo("  x_len={}", x_len->At<int64_t>(0));
+          PrintDebug("  x_len={}", x_len->At<int64_t>(0));
         }
         if (y_len && y_len->ElementCount() > 0) {
-          PrintInfo("  y_len={}", y_len->At<int64_t>(0));
+          PrintDebug("  y_len={}", y_len->At<int64_t>(0));
         }
       }
 
@@ -403,7 +425,7 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
 
       // 定期打印进度
       if (steps % 100 == 0) {
-        PrintInfo("  GPT generation progress: {} tokens generated", steps);
+        PrintDebug("  GPT generation progress: {} tokens generated", steps);
       }
     }
 
@@ -446,36 +468,33 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
       }
     }
 
-    // SoVITS解码：将生成的语义token转换为音频
-    // 准备目标文本序列
-    auto text_seq_tensor =
-        Model::Tensor::Empty({1, target_phones->Shape()[0]},
-                             Model::DataType::kInt64, Model::DeviceType::kCPU);
-    std::memcpy(text_seq_tensor->Data<int64_t>(),
-                target_phones->Data<int64_t>(), target_phones->ByteSize());
+    // SoVITS解码
+    // (1, seq_len)
+    auto text_seq_tensor = target_phones->To(Model::Device(Model::DeviceType::kCPU), Model::DataType::kInt64);
+    if (text_seq_tensor->Shape().size() == 1) {
+      text_seq_tensor->Reshape({1, text_seq_tensor->Shape()[0]});
+    }
 
-    // 准备参考谱图（需要确保形状正确）
+    // 参考谱图
     auto refer_spec_reshaped = speaker_info.m_refer_spec->Clone();
     if (refer_spec_reshaped->Shape().size() == 2) {
       refer_spec_reshaped->Reshape({1, refer_spec_reshaped->Shape()[0],
                                     refer_spec_reshaped->Shape()[1]});
     }
 
-    // 准备SV embedding（需要确保形状正确）
+    // SV embedding
     auto sv_emb_reshaped = speaker_info.m_sv_emb->Clone();
     if (sv_emb_reshaped->Shape().size() == 1) {
       sv_emb_reshaped->Reshape({1, sv_emb_reshaped->Shape()[0]});
     }
 
-    // 调用SoVITS模型生成音频
-    PrintInfo("  SoVITS decoding...");
+    // 生成音频
+    PrintDebug("  SoVITS decoding...");
     auto audio_output = m_sovits_model->GenerateTensor(
         generated_sem.get(), text_seq_tensor.get(), refer_spec_reshaped.get(),
         sv_emb_reshaped.get(), noise_scale, speed);
 
-    // 将音频数据添加到最终输出
     if (audio_output && audio_output->ElementCount() > 0) {
-      // 转换到CPU并获取数据（确保为Float32以进行后处理）
       auto audio_cpu = audio_output->To(Model::Device(Model::DeviceType::kCPU), Model::DataType::kFloat32);
       const float* audio_data = audio_cpu->Data<float>();
       size_t audio_len = audio_cpu->ElementCount();
@@ -492,20 +511,20 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
       // 添加到最终音频
       final_audio.insert(final_audio.end(), segment_audio.begin(),
                          segment_audio.end());
-      PrintInfo("  Generated {} audio samples for segment {}", audio_len,
+      PrintDebug("  Generated {} audio samples for segment {}", audio_len,
                 seg_idx + 1);
     } else {
       PrintWarn("  SoVITS generated empty audio for segment {}", seg_idx + 1);
     }
 
-    // 在segments之间添加停顿（0.3秒）
+    // 添加停顿
     if (seg_idx < segments.size() - 1) {
       int pause_samples = static_cast<int>(m_sampling_rate * 0.3f);
       final_audio.insert(final_audio.end(), pause_samples, 0.0f);
     }
   }
 
-  // 音频后处理：全局峰值归一化
+  // 全局峰值归一化
   if (!final_audio.empty()) {
     // 找到最大幅度
     float max_amp = 0.0f;
@@ -524,12 +543,11 @@ std::unique_ptr<AudioTools> GPTSoVITSPipline::InferSpeaker(
       }
     }
 
-    PrintInfo("Final audio: {} samples ({} seconds), peak amplitude: {:.4f}",
+    PrintDebug("Final audio: {} samples ({} seconds), peak amplitude: {:.4f}",
               final_audio.size(),
               static_cast<float>(final_audio.size()) / m_sampling_rate,
               max_amp);
 
-    // 创建AudioTools对象并返回
     return AudioTools::FromByte(final_audio,m_sampling_rate);
   } else {
     PrintWarn("Generated empty audio");

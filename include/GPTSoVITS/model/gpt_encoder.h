@@ -72,14 +72,12 @@ public:
    * @brief Run GPT Encoder inference
    *
    * @param phoneme_ids Concatenated phoneme IDs [1, seq_len]
-   * @param phoneme_ids_len Length of phoneme sequence [1]
    * @param prompts Reference semantic tokens from VQ [1, prompt_len]
    * @param bert_feature BERT features [1, 1024, seq_len]
    * @return GPTEncoderOutput containing topk, indices, and KV cache
    */
   GPTEncoderOutput Encode(
       Tensor* phoneme_ids,
-      Tensor* phoneme_ids_len,
       Tensor* prompts,
       Tensor* bert_feature);
 

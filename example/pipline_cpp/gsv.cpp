@@ -12,6 +12,13 @@ auto device = GPTSoVITS::Model::Device(GPTSoVITS::Model::DeviceType::kCUDA, 0);
 auto device = GPTSoVITS::Model::Device(GPTSoVITS::Model::DeviceType::kCPU, 0);
 #endif
 
+#ifdef _HOST_WINDOWS_
+#define MODEL_PATH R"(F:\Engcode\AIAssistant\GPT-SoVITS-Devel\GPT-SoVITS_minimal_inference\onnx_export\firefly_v2_proplus_fp16)"
+#else
+#define MODEL_PATH R"(/Users/huiyi/code/python/GPT-SoVITS_minimal_inference/onnx_export/firefly_v2_proplus_fp16)"
+#endif
+
+
 std::string readFile(const std::string& path) {
   std::ifstream file(path, std::ios::binary);
   if (!file) throw std::runtime_error("无法打开文件");
@@ -102,11 +109,10 @@ int main() {
 #ifdef _WIN32
   std::system("chcp 65001");
 #endif
-  std::filesystem::path modelPath = FS_PATH(
-      R"(/Users/huiyi/code/python/GPT-SoVITS_minimal_inference/onnx_export/firefly_v2_proplus_fp16)");
+  std::filesystem::path modelPath = FS_PATH(MODEL_PATH);
 
   GPTSoVITS::GPTSoVITSPipline gsv(
-      readFile(modelPath / "config.json"), load_g2p_pipline(modelPath),
+      readFile((modelPath / "config.json").string()), load_g2p_pipline(modelPath),
       load_ssl_model(modelPath), load_vq_model(modelPath),
       load_spectrogram_model(modelPath), load_sv_embedding_model(modelPath),
       load_gpt_encoder_model(modelPath), load_gpt_step_model(modelPath),
@@ -115,7 +121,7 @@ int main() {
   gsv.CreateSpeaker(
       "firefly", "zh",
       FS_PATH(
-          R"(/Users/huiyi/code/python/GPT-SoVITS_minimal_inference/pretrained_models/看，这尊雕像就是匹诺康尼大名鼎鼎的卡通人物钟表小子.wav)"),
+          R"(F:\Engcode\c_c++\huiyicc\gsv_cpp\cmake-build-debug\看，这尊雕像就是匹诺康尼大名鼎鼎的卡通人物钟表小子.wav)"),
       "看，这尊雕像就是匹诺康尼大名鼎鼎的卡通人物钟表小子");
 
   // Test inference (currently returns empty audio as SoVITS generation is not

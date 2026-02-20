@@ -12,7 +12,7 @@ std::unique_ptr<Tensor> SpectrogramModel::ComputeSpec(
     const std::vector<float>& audio_32k) {
   std::vector<int64_t> shape = {1, static_cast<int64_t>(audio_32k.size())};
   auto input_audio_32k = Tensor::CreateFromHost(
-      std::vector<float>(audio_32k).data(), shape, DataType::kFloat32);
+      const_cast<float*>(audio_32k.data()), shape, DataType::kFloat32);
   Device model_device = m_model->GetDevice();
   auto wav32k_padded =
       input_audio_32k->To(model_device, m_model->GetInputDataType("audio"));

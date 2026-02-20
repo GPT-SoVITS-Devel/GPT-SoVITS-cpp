@@ -88,6 +88,16 @@ private:
   std::shared_ptr<Model::GPTStepModel> m_gpt_step_model;
   std::shared_ptr<Model::SoVITSModel> m_sovits_model;
 
+  // 配置参数（从config.json读取）
+  Model::DataType m_compute_precision = Model::DataType::kFloat32;  // 计算精度
+  int m_sampling_rate = 32000;
+  int m_max_len = 1000;  // GPT KV cache预分配最大长度
+  int m_hop_length = 640;
+  int m_filter_length = 2048;
+  int m_mel_bins = 128;
+  int m_sv_dim = 20480;  // SV embedding维度
+  std::string m_model_version = "v2";
+
   // Helper methods
   static int64_t SampleTopK(const Model::Tensor* topk_values,
                             const Model::Tensor* topk_indices,
@@ -95,6 +105,13 @@ private:
   static std::unique_ptr<Model::Tensor> ConcatTensor(const Model::Tensor* a,
                                                      const Model::Tensor* b,
                                                      int axis);
+
+  // 初始化配置参数
+  void InitializeConfig();
+  // 检测模型精度
+  void DetectModelPrecision();
+  // 获取计算精度对应的数据类型
+  Model::DataType GetComputeDataType() const;
 };
 
 }  // namespace GPTSoVITS

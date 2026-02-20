@@ -9,7 +9,6 @@ namespace GPTSoVITS::Model {
 
 GPTEncoderOutput GPTEncoderModel::Encode(
     Tensor* phoneme_ids,
-    Tensor* phoneme_ids_len,
     Tensor* prompts,
     Tensor* bert_feature) {
 
@@ -28,17 +27,6 @@ GPTEncoderOutput GPTEncoderModel::Encode(
   } else {
     phoneme_ids_ptr = phoneme_ids;
   }
-
-  // // Prepare phoneme_ids_len
-  // std::unique_ptr<Tensor> phoneme_ids_len_converted;
-  // Tensor* phoneme_ids_len_ptr = nullptr;
-  // if (phoneme_ids_len->GetDeviceType() != model_device.type ||
-  //     phoneme_ids_len->Type() != m_model->GetInputDataType("phoneme_ids_len")) {
-  //   phoneme_ids_len_converted = phoneme_ids_len->To(model_device, m_model->GetInputDataType("phoneme_ids_len"));
-  //   phoneme_ids_len_ptr = phoneme_ids_len_converted.get();
-  // } else {
-  //   phoneme_ids_len_ptr = phoneme_ids_len;
-  // }
 
   // Prepare prompts (convert to int64 if needed)
   std::unique_ptr<Tensor> prompts_converted;

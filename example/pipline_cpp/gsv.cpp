@@ -121,7 +121,7 @@ int main() {
   gsv.CreateSpeaker(
       "firefly", "zh",
       FS_PATH(
-          R"(F:\Engcode\c_c++\huiyicc\gsv_cpp\cmake-build-debug\看，这尊雕像就是匹诺康尼大名鼎鼎的卡通人物钟表小子.wav)"),
+          R"(./看，这尊雕像就是匹诺康尼大名鼎鼎的卡通人物钟表小子.wav)"),
       "看，这尊雕像就是匹诺康尼大名鼎鼎的卡通人物钟表小子");
 
   // Test inference (currently returns empty audio as SoVITS generation is not

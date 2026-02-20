@@ -7,7 +7,7 @@
 #include "GPTSoVITS/Text/tone_sandhi.h"
 #include "GPTSoVITS/plog.h"
 #include "cppjieba/Jieba.hpp"
-#include <GPTSoVITS/G2P/g2p_zh.h>
+#include <GPTSoVITS/G2P/G2P_Zh.h>
 #include <GPTSoVITS/Text/TextNormalizer/zh.h>
 #include <GPTSoVITS/Text/TextNormalizerMap.h>
 #include <boost/algorithm/string.hpp>

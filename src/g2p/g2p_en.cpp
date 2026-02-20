@@ -1,7 +1,7 @@
 //
 // Created by Huiyicc on 24-12-2.
 //
-#include <GPTSoVITS/G2P/g2p_en.h>
+#include <GPTSoVITS/G2P/G2P_EN.h>
 #include <GPTSoVITS/Utils/exception.h>
 #include <unordered_map>
 #include <fstream>

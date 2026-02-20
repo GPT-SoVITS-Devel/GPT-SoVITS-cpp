@@ -7,7 +7,7 @@
 #define HAVE_CTYPE_H 1
 
 /* Define to 1 if you have the <dirent.h> header file. */
-/* #undef HAVE_DIRENT_H */
+#define HAVE_DIRENT_H 1
 
 /* Define to 1 if you have the <fcntl.h> header file. */
 #define HAVE_FCNTL_H 1
@@ -16,7 +16,7 @@
 #define HAVE_GETENV 1
 
 /* Define to 1 if you have the `getpagesize' function. */
-/* #undef HAVE_GETPAGESIZE */
+#define HAVE_GETPAGESIZE 1
 
 /* Define to 1 if you have the `iconv_open' library(-liconv). */
 /* #undef HAVE_ICONV */
@@ -25,10 +25,10 @@
 #define HAVE_INTTYPES_H 1
 
 /* Define to 1 if you have the <io.h> header file. */
-#define HAVE_IO_H 1
+/* #undef HAVE_IO_H */
 
 /* Define to 1 if you have the `m' library (-lm). */
-/* #undef HAVE_LIBM */
+#define HAVE_LIBM 1
 
 /* Define to 1 if you have the `winmm' library (-lwinmm). */
 /* #undef HAVE_LIBWINMM */
@@ -37,10 +37,10 @@
 #define HAVE_MEMORY_H 1
 
 /* Define to 1 if you have a working `mmap' system call. */
-/* #undef HAVE_MMAP */
+#define HAVE_MMAP 1
 
 /* Define to 1 if you have the `opendir' function. */
-/* #undef HAVE_OPENDIR */
+#define HAVE_OPENDIR 1
 
 /* Define to 1 if you have the `setjmp' function. */
 #define HAVE_SETJMP 1
@@ -58,7 +58,7 @@
 #define HAVE_STDLIB_H 1
 
 /* Define to 1 if you have the <strings.h> header file. */
-/* #undef HAVE_STRINGS_H */
+#define HAVE_STRINGS_H 1
 
 /* Define to 1 if you have the <string.h> header file. */
 #define HAVE_STRING_H 1
@@ -67,28 +67,28 @@
 #define HAVE_STRSTR 1
 
 /* Define to 1 if you have the <sys/mman.h> header file. */
-/* #undef HAVE_SYS_MMAN_H */
+#define HAVE_SYS_MMAN_H 1
 
 /* Define to 1 if you have the <sys/param.h> header file. */
-/* #undef HAVE_SYS_PARAM_H */
+#define HAVE_SYS_PARAM_H 1
 
 /* Define to 1 if you have the <sys/stat.h> header file. */
 #define HAVE_SYS_STAT_H 1
 
 /* Define to 1 if you have the <sys/times.h> header file. */
-/* #undef HAVE_SYS_TIMES_H */
+#define HAVE_SYS_TIMES_H 1
 
 /* Define to 1 if you have the <sys/types.h> header file. */
 #define HAVE_SYS_TYPES_H 1
 
 /* Define to 1 if you have the <unistd.h> header file. */
-/* #undef HAVE_UNISTD_H */
+#define HAVE_UNISTD_H 1
 
 /* Define to 1 if you have the <windows.h> header file. */
-#define HAVE_WINDOWS_H 1
+/* #undef HAVE_WINDOWS_H */
 
 /* Define to 1 if you have the `iconv_open' library(-liconv). */
-/* #undef ICONV_CONST */
+#define ICONV_CONST 1
 
 /* Name of package */
 #define PACKAGE "open_jtalk"
@@ -118,7 +118,7 @@
 #define SIZEOF_INT 4
 
 /* The size of `long', as computed by sizeof. */
-#define SIZEOF_LONG 4
+#define SIZEOF_LONG 8
 
 /* The size of `long long', as computed by sizeof. */
 #define SIZEOF_LONG_LONG 8

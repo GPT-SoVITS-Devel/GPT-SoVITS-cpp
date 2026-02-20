@@ -69,4 +69,16 @@
   } while (0)
 
 
+#define PrintWarn(fstr, ...)                                                                                                                         \
+do {                                                                                                                                                \
+char time_str[32];                                                                                                                                \
+LOCALTIME(time_str);                                                                                                                              \
+std::string_view __TMP__fPath__ = __FILE__;                                                                                                       \
+__TMP__fPath__ = __TMP__fPath__.substr(strlen(CPPMODULE_PROJECT_ROOT_PATH) + 1, __TMP__fPath__.size() - strlen(CPPMODULE_PROJECT_ROOT_PATH) - 1); \
+auto __TMP__lstr__ = fmt::format("<warn> <{}> [{}:{}] ", time_str, __TMP__fPath__, __LINE__);                                                    \
+auto __TMP__ustr__ = fmt::format(fstr, ##__VA_ARGS__);                                                                                            \
+___PLOG_COUTE__(fmt::format("{}{}", __TMP__lstr__, __TMP__ustr__));                                                                               \
+} while (0)
+
+
 #endif// GPT_SOVITS_CPP_PLOG_H

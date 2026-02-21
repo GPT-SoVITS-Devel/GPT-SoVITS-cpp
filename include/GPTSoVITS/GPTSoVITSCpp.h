@@ -31,6 +31,7 @@ std::filesystem::path GetGlobalResourcesPath();
 class GPTSoVITSPipline;
 
 class SpeakerInfo {
+public:
   std::string m_speaker_name;
   std::string m_speaker_lang;
   std::shared_ptr<Bert::BertRes> m_bert_res;
@@ -44,8 +45,10 @@ class SpeakerInfo {
 public:
   friend GPTSoVITSPipline;
 
-  std::string SpeakerName() { return m_speaker_name; }
-  std::string SpeakerLang() { return m_speaker_lang; }
+  [[nodiscard]] std::string SpeakerName() const { return m_speaker_name; }
+  [[nodiscard]] std::string SpeakerLang() const { return m_speaker_lang; }
+  [[nodiscard]] std::shared_ptr<Bert::BertRes> BertRes() const { return m_bert_res; }
+
 };
 
 class GPTSoVITSPipline {
@@ -76,6 +79,46 @@ public:
                                            float temperature = 1.0f,
                                            float noise_scale = 0.5f,
                                            float speed = 1.0f);
+
+  /**
+   * @brief 导出说话人数据到文件（用于云端创建-边缘推理）
+   * @param speaker_name 说话人名称
+   * @param output_path 输出文件路径
+   * @param include_audio 是否包含音频数据（增加文件大小）
+   * @return 是否成功
+   */
+  bool ExportSpeaker(const std::string& speaker_name,
+                     const std::string& output_path,
+                     bool include_audio = false);
+
+  /**
+   * @brief 从文件导入说话人数据（用于边缘设备加载）
+   * @param input_path 输入文件路径
+   * @param speaker_name 新的说话人名称（可选，如果不指定则使用文件中的名称）
+   * @return 是否成功
+   */
+  bool ImportSpeaker(const std::string& input_path,
+                     const std::string& speaker_name = "");
+
+  /**
+   * @brief 列出所有已创建的说话人
+   * @return 说话人名称列表
+   */
+  std::vector<std::string> ListSpeakers() const;
+
+  /**
+   * @brief 移除说话人
+   * @param speaker_name 说话人名称
+   * @return 是否成功
+   */
+  bool RemoveSpeaker(const std::string& speaker_name);
+
+  /**
+   * @brief 检查说话人是否存在
+   * @param speaker_name 说话人名称
+   * @return 是否存在
+   */
+  bool HasSpeaker(const std::string& speaker_name) const;
 
 private:
   std::shared_ptr<_JsonImpl> m_config;

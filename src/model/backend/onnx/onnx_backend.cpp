@@ -147,18 +147,30 @@ std::vector<std::unique_ptr<Tensor>> ONNXBackend::InferCore(
 
 bool ONNXBackend::Load(const std::string& model_path, const Device& device,
                        int work_thread_num) {
-  this->device_ = device;
+  // Legacy interface: convert to BackendConfig
+  BackendConfig config;
+  config.device = device;
+  config.work_thread_num = work_thread_num;
+  config.precision = PrecisionMode::kAuto;
+  config.Validate();
+  return Load(model_path, config);
+}
+
+bool ONNXBackend::Load(const std::string& model_path, const BackendConfig& config) {
+  config_ = config;
+  this->device_ = config.device;
+  config_.Validate();
+
   try {
     Ort::SessionOptions options;
-    // options.SetLogSeverityLevel(0);
-    options.SetIntraOpNumThreads(work_thread_num);
-    options.SetInterOpNumThreads(work_thread_num);
+    options.SetIntraOpNumThreads(config_.work_thread_num);
+    options.SetInterOpNumThreads(config_.work_thread_num);
     options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 #ifdef _ENABLE_CUDA_
     // 开启CUDA
-    if (device.type == DeviceType::kCUDA) {
+    if (config_.device.type == DeviceType::kCUDA) {
       OrtCUDAProviderOptions cuda_options{};
-      cuda_options.device_id = device.device_id;
+      cuda_options.device_id = config_.device.device_id;
       options.AppendExecutionProvider_CUDA(cuda_options);
     }
 #endif
@@ -180,7 +192,9 @@ bool ONNXBackend::Load(const std::string& model_path, const Device& device,
 
       auto type_info = impl_->session->GetInputTypeInfo(i);
       auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
-      impl_->input_types[name_str] = FromOnnxType(tensor_info.GetElementType());
+      DataType model_type = FromOnnxType(tensor_info.GetElementType());
+      DataType input_type = DetermineInputType(model_type);
+      impl_->input_types[name_str] = input_type;
     }
 
     // 收集输出信息
@@ -198,11 +212,37 @@ bool ONNXBackend::Load(const std::string& model_path, const Device& device,
     }
 
     PrintInfo("[ONNXBackend] Loaded model from: {}", model_path);
+    PrintInfo("[ONNXBackend] Device: {}, Precision: {}, Threads: {}",
+              (config_.device.type == DeviceType::kCUDA ? "CUDA" : "CPU"),
+              PrecisionModeToString(config_.precision),
+              config_.work_thread_num);
 
     return true;
   } catch (const std::exception& e) {
     PrintError("[ONNXBackend] Load failed: {}", e.what());
     return false;
+  }
+}
+
+DataType ONNXBackend::DetermineInputType(DataType model_type) const {
+  switch (config_.precision) {
+    case PrecisionMode::kAuto:
+      return model_type;
+    case PrecisionMode::kFP32:
+      return DataType::kFloat32;
+    case PrecisionMode::kFP16:
+      return DataType::kFloat16;
+    case PrecisionMode::kMixed:
+      // 混合精度：自动检测模型类型，如果模型是 FP32 则使用 FP16，否则保持原样
+      if (model_type == DataType::kFloat32) {
+        return DataType::kFloat16;
+      }
+      return model_type;
+    case PrecisionMode::kINT8:
+      PrintWarn("[ONNXBackend] INT8 precision requested but not fully supported, using model type");
+      return model_type;
+    default:
+      return model_type;
   }
 }
 
@@ -253,6 +293,69 @@ DataType ONNXBackend::GetOutputDataType(const std::string& name) const {
   if (it == impl_->output_types.end())
     THROW_ERRORN("Output not found: {}", name);
   return it->second;
+}
+
+bool ONNXBackend::ForwardWithPreallocatedOutput(
+    const std::unordered_map<std::string, Tensor*>& inputs,
+    std::unordered_map<std::string, Tensor*>& outputs) {
+  try {
+    Ort::IoBinding io_binding(*impl_->session);
+
+    // 绑定输入
+    for (auto const& [name, tensor] : inputs) {
+      Ort::MemoryInfo input_mem_info(nullptr);
+
+      if (tensor->IsCPU()) {
+        input_mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+      } else {
+#ifdef WITH_CUDA
+        input_mem_info = Ort::MemoryInfo("Cuda", OrtAllocatorType::OrtDeviceAllocator,
+                                         tensor->GetDevice().device_id, OrtMemTypeDefault);
+#else
+        THROW_ERROR("CUDA input provided but compiled without CUDA support.");
+#endif
+      }
+
+      Ort::Value input_ort_value = Ort::Value::CreateTensor(
+          input_mem_info, tensor->Data(), tensor->ByteSize(),
+          tensor->Shape().data(), tensor->Shape().size(),
+          ToOnnxType(tensor->Type()));
+
+      io_binding.BindInput(name.c_str(), input_ort_value);
+    }
+
+    // 绑定输出（使用预分配的 Tensor）
+    for (auto const& [name, tensor] : outputs) {
+      Ort::MemoryInfo output_mem_info(nullptr);
+
+      if (tensor->IsCPU()) {
+        output_mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+      } else {
+#ifdef WITH_CUDA
+        output_mem_info = Ort::MemoryInfo("Cuda", OrtAllocatorType::OrtDeviceAllocator,
+                                          tensor->GetDevice().device_id, OrtMemTypeDefault);
+#else
+        output_mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+#endif
+      }
+
+      // 从预分配的 Tensor 创建 Ort::Value
+      Ort::Value output_ort_value = Ort::Value::CreateTensor(
+          output_mem_info, tensor->Data(), tensor->ByteSize(),
+          const_cast<int64_t*>(tensor->Shape().data()), tensor->Shape().size(),
+          ToOnnxType(tensor->Type()));
+
+      io_binding.BindOutput(name.c_str(), output_ort_value);
+    }
+
+    // 运行推理
+    impl_->session->Run(Ort::RunOptions{nullptr}, io_binding);
+
+    return true;
+  } catch (const std::exception& e) {
+    PrintError("[ONNXBackend] ForwardWithPreallocatedOutput failed: {}", e.what());
+    return false;
+  }
 }
 
 }  // namespace GPTSoVITS::Model

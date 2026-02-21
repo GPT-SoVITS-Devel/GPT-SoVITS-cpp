@@ -7,6 +7,7 @@
 #include <random>
 
 #include "GPTSoVITS/plog.h"
+#include "GPTSoVITS/Utils/speaker_serializer.h"
 #include "nlohmann/json.hpp"
 
 namespace GPTSoVITS {
@@ -41,6 +42,36 @@ GPTSoVITSPipline::GPTSoVITSPipline(
       m_gpt_encoder_model(gpt_encoder_model),
       m_gpt_step_model(gpt_step_model),
       m_sovits_model(sovits_model) {
+  // 接口验证：确保所有必需的模型和方法都存在
+#ifdef GSV_ENABLE_INTERFACE_VALIDATION
+  using namespace Utils;
+
+  // 注册模块依赖关系
+  auto& dep_graph = ModuleDependencyGraph::Instance();
+  dep_graph.RegisterModule("G2PPipline", {"BertModel"});
+  dep_graph.RegisterModule("SSLModel", {});
+  dep_graph.RegisterModule("VQModel", {"SSLModel"});
+  dep_graph.RegisterModule("SpectrogramModel", {});
+  dep_graph.RegisterModule("SVEmbeddingModel", {});
+  dep_graph.RegisterModule("GPTEncoderModel", {"BertModel"});
+  dep_graph.RegisterModule("GPTStepModel", {"GPTEncoderModel"});
+  dep_graph.RegisterModule("SoVITSModel", {"VQModel", "SpectrogramModel", "SVEmbeddingModel"});
+  dep_graph.RegisterModule("GPTSoVITSPipline",
+                          {"G2PPipline", "SSLModel", "VQModel", "SpectrogramModel",
+                           "SVEmbeddingModel", "GPTEncoderModel", "GPTStepModel",
+                           "SoVITSModel"});
+
+  // 验证依赖关系
+  if (!dep_graph.ValidateDependencies()) {
+    PrintError("[GPTSoVITSPipline] Module dependency validation failed!");
+  }
+
+  // 验证所有接口
+  if (!InterfaceValidator::ValidatePipelineInterface<GPTSoVITSPipline>()) {
+    PrintError("[GPTSoVITSPipline] Pipeline interface validation failed!");
+  }
+#endif
+
   m_config = std::make_shared<_JsonImpl>();
   m_config->data = nlohmann::json::parse(config);
 
@@ -727,4 +758,105 @@ void GPTSoVITSPipline::DetectModelPrecision() {
 Model::DataType GPTSoVITSPipline::GetComputeDataType() const {
   return m_compute_precision;
 }
+
+// ============ 说话人数据导入/导出方法 ============
+
+bool GPTSoVITSPipline::ExportSpeaker(const std::string& speaker_name,
+                                     const std::string& output_path,
+                                     bool include_audio) {
+  auto iter = m_speaker_map.find(speaker_name);
+  if (iter == m_speaker_map.end()) {
+    PrintError("[GPTSoVITSPipline] Speaker '{}' not found", speaker_name);
+    return false;
+  }
+
+  PrintInfo("[GPTSoVITSPipline] Exporting speaker '{}' to: {}",
+            speaker_name, output_path);
+
+  bool success = Utils::SpeakerSerializer::SerializeToFile(
+      iter->second, output_path, include_audio);
+
+  if (success) {
+    auto package_size = Utils::SpeakerSerializer::GetPackageSize(output_path);
+    PrintInfo("[GPTSoVITSPipline] Successfully exported speaker '{}', package size: {} bytes",
+              speaker_name, package_size);
+  }
+
+  return success;
+}
+
+bool GPTSoVITSPipline::ImportSpeaker(const std::string& input_path,
+                                     const std::string& speaker_name) {
+  PrintInfo("[GPTSoVITSPipline] Importing speaker from: {}", input_path);
+
+  // 验证数据包
+  if (!Utils::SpeakerSerializer::ValidatePackage(input_path)) {
+    PrintError("[GPTSoVITSPipline] Invalid speaker package: {}", input_path);
+    return false;
+  }
+
+  // 获取数据包信息
+  auto package_info = Utils::SpeakerSerializer::GetPackageInfo(input_path);
+  if (!package_info) {
+    PrintError("[GPTSoVITSPipline] Failed to read package info: {}", input_path);
+    return false;
+  }
+
+  // 确定说话人名称
+  std::string final_name = speaker_name.empty() ?
+      package_info->speaker_name : speaker_name;
+
+  // 检查是否已存在
+  if (m_speaker_map.find(final_name) != m_speaker_map.end()) {
+    PrintWarn("[GPTSoVITSPipline] Speaker '{}' already exists, will be overwritten",
+             final_name);
+  }
+
+  // 反序列化
+  auto speaker_info = Utils::SpeakerSerializer::DeserializeFromFile(input_path);
+  if (!speaker_info) {
+    PrintError("[GPTSoVITSPipline] Failed to deserialize speaker from: {}", input_path);
+    return false;
+  }
+
+  // 更新说话人名称
+  speaker_info->m_speaker_name = final_name;
+
+  // 存储到映射表
+  m_speaker_map[final_name] = std::move(*speaker_info);
+
+  PrintInfo("[GPTSoVITSPipline] Successfully imported speaker '{}', lang: {}",
+            final_name, speaker_info->m_speaker_lang);
+
+  return true;
+}
+
+std::vector<std::string> GPTSoVITSPipline::ListSpeakers() const {
+  std::vector<std::string> speaker_names;
+  speaker_names.reserve(m_speaker_map.size());
+
+  for (const auto& [name, _] : m_speaker_map) {
+    speaker_names.push_back(name);
+  }
+
+  return speaker_names;
+}
+
+bool GPTSoVITSPipline::RemoveSpeaker(const std::string& speaker_name) {
+  auto iter = m_speaker_map.find(speaker_name);
+  if (iter == m_speaker_map.end()) {
+    PrintError("[GPTSoVITSPipline] Speaker '{}' not found", speaker_name);
+    return false;
+  }
+
+  m_speaker_map.erase(iter);
+  PrintInfo("[GPTSoVITSPipline] Removed speaker: {}", speaker_name);
+
+  return true;
+}
+
+bool GPTSoVITSPipline::HasSpeaker(const std::string& speaker_name) const {
+  return m_speaker_map.find(speaker_name) != m_speaker_map.end();
+}
+
 }  // namespace GPTSoVITS

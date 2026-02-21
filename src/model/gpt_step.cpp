@@ -138,46 +138,95 @@ bool GPTStepModel::StepWithIOBinding(Tensor* samples,
                                      Tensor* topk_values_out,
                                      Tensor* topk_indices_out) {
 
-  // This is a stub implementation for IO binding
-  // For actual zero-copy, we need to extend the ONNXBackend to support
-  // IO binding similar to Python's io_binding.bind_ortvalue_input/output
-  //
-  // The implementation would involve:
-  // 1. Pre-allocating all tensors on the device
-  // 2. Using OrtIoBinding from ONNX Runtime to bind inputs/outputs directly
-  // 3. Calling RunWithIOBinding instead of regular Run
-  //
-  // For now, we'll use the regular Step method which involves copies
-  // TODO: Implement proper IO binding in ONNXBackend
+  // 确保所有输入在正确的设备上并有正确的类型
+  Device model_device = m_model->GetDevice();
 
-  GPTStepOutput output = Step(samples, k_cache_in, v_cache_in, idx, x_len, y_len);
-
-  // Copy outputs to pre-allocated buffers
-  if (topk_values_out && output.topk_values) {
-    auto& out_values = *topk_values_out;
-    auto& src_values = *output.topk_values;
-    std::memcpy(out_values.Data<void>(), src_values.Data<void>(), src_values.ByteSize());
+  // 准备输入
+  std::unique_ptr<Tensor> samples_converted;
+  Tensor* samples_ptr = nullptr;
+  if (samples->GetDeviceType() != model_device.type ||
+      samples->Type() != m_model->GetInputDataType("samples")) {
+    samples_converted = samples->To(model_device, m_model->GetInputDataType("samples"));
+    samples_ptr = samples_converted.get();
+  } else {
+    samples_ptr = samples;
   }
 
-  if (topk_indices_out && output.topk_indices) {
-    auto& out_indices = *topk_indices_out;
-    auto& src_indices = *output.topk_indices;
-    std::memcpy(out_indices.Data<void>(), src_indices.Data<void>(), src_indices.ByteSize());
+  std::unique_ptr<Tensor> k_cache_converted;
+  Tensor* k_cache_ptr = nullptr;
+  if (k_cache_in->GetDeviceType() != model_device.type ||
+      k_cache_in->Type() != m_model->GetInputDataType("k_cache")) {
+    k_cache_converted = k_cache_in->To(model_device, m_model->GetInputDataType("k_cache"));
+    k_cache_ptr = k_cache_converted.get();
+  } else {
+    k_cache_ptr = k_cache_in;
   }
 
-  if (k_cache_out && output.k_cache_new) {
-    auto& out_cache = *k_cache_out;
-    auto& src_cache = *output.k_cache_new;
-    std::memcpy(out_cache.Data<void>(), src_cache.Data<void>(), src_cache.ByteSize());
+  std::unique_ptr<Tensor> v_cache_converted;
+  Tensor* v_cache_ptr = nullptr;
+  if (v_cache_in->GetDeviceType() != model_device.type ||
+      v_cache_in->Type() != m_model->GetInputDataType("v_cache")) {
+    v_cache_converted = v_cache_in->To(model_device, m_model->GetInputDataType("v_cache"));
+    v_cache_ptr = v_cache_converted.get();
+  } else {
+    v_cache_ptr = v_cache_in;
   }
 
-  if (v_cache_out && output.v_cache_new) {
-    auto& out_cache = *v_cache_out;
-    auto& src_cache = *output.v_cache_new;
-    std::memcpy(out_cache.Data<void>(), src_cache.Data<void>(), src_cache.ByteSize());
+  std::unique_ptr<Tensor> idx_converted;
+  Tensor* idx_ptr = nullptr;
+  if (idx->GetDeviceType() != model_device.type ||
+      idx->Type() != m_model->GetInputDataType("idx")) {
+    idx_converted = idx->To(model_device, m_model->GetInputDataType("idx"));
+    idx_ptr = idx_converted.get();
+  } else {
+    idx_ptr = idx;
   }
 
-  return true;
+  std::unique_ptr<Tensor> x_len_converted;
+  Tensor* x_len_ptr = nullptr;
+  if (x_len->GetDeviceType() != model_device.type ||
+      x_len->Type() != m_model->GetInputDataType("x_len")) {
+    x_len_converted = x_len->To(model_device, m_model->GetInputDataType("x_len"));
+    x_len_ptr = x_len_converted.get();
+  } else {
+    x_len_ptr = x_len;
+  }
+
+  std::unique_ptr<Tensor> y_len_converted;
+  Tensor* y_len_ptr = nullptr;
+  if (y_len->GetDeviceType() != model_device.type ||
+      y_len->Type() != m_model->GetInputDataType("y_len")) {
+    y_len_converted = y_len->To(model_device, m_model->GetInputDataType("y_len"));
+    y_len_ptr = y_len_converted.get();
+  } else {
+    y_len_ptr = y_len;
+  }
+
+  std::unordered_map<std::string, Tensor*> inputs = {
+      {"samples", samples_ptr},
+      {"k_cache", k_cache_ptr},
+      {"v_cache", v_cache_ptr},
+      {"idx", idx_ptr},
+      {"x_len", x_len_ptr},
+      {"y_len", y_len_ptr}
+  };
+
+  std::unordered_map<std::string, Tensor*> outputs;
+  if (topk_values_out) {
+    outputs["topk_values"] = topk_values_out;
+  }
+  if (topk_indices_out) {
+    outputs["topk_indices"] = topk_indices_out;
+  }
+  if (k_cache_out) {
+    outputs["k_cache_new"] = k_cache_out;
+  }
+  if (v_cache_out) {
+    outputs["v_cache_new"] = v_cache_out;
+  }
+
+  // IO Binding 推理
+  return m_model->ForwardWithPreallocatedOutput(inputs, outputs);
 }
 
 }  // namespace GPTSoVITS::Model

@@ -14,6 +14,7 @@ namespace GPTSoVITS::Model {
 enum class DataType {
   kFloat32,
   kFloat16,
+  kFloat8,   // FP8 (预留，未来 TensorRT 支持)
   kInt32,
   kInt64,
   kInt8,
@@ -71,6 +72,48 @@ public:
   // 仅修改元数据, 不触碰物理内存
   // 返回自身引用以支持链式调用
   Tensor& Reshape(const std::vector<int64_t>& new_shape);
+
+  /**
+   * @brief 创建 Tensor 的零拷贝视图
+   * @param new_shape 新的形状
+   * @return 视图 Tensor（共享底层内存）
+   * @note 视图不管理内存生命周期，使用需谨慎
+   */
+  std::unique_ptr<Tensor> View(const std::vector<int64_t>& new_shape);
+
+  /**
+   * @brief 切片操作（尽可能零拷贝）
+   * @param start 起始索引
+   * @param end 结束索引
+   * @param axis 切片维度
+   * @return 切片后的 Tensor
+   */
+  std::unique_ptr<Tensor> Slice(int64_t start, int64_t end, int axis = 0);
+
+  /**
+   * @brief 填充操作
+   * @param value 填充值
+   */
+  template <typename T>
+  void Fill(T value) {
+    T* ptr = Data<T>();
+    for (int64_t i = 0; i < numel_; ++i) {
+      ptr[i] = value;
+    }
+  }
+
+  /**
+   * @brief 从其他 Tensor 拷贝数据（零拷贝检查）
+   * @param src 源 Tensor
+   */
+  void CopyFrom(const Tensor* src);
+
+  /**
+   * @brief 检查是否与另一个 Tensor 共享内存
+   * @param other 另一个 Tensor
+   * @return 是否共享
+   */
+  bool SharesMemoryWith(const Tensor& other) const;
 
   // 获取底层数据指针
   template <typename T = void>

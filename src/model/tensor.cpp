@@ -32,6 +32,7 @@ void DispatchOut(const T_IN* in, void* out, int64_t numel, DataType out_type) {
   switch (out_type) {
     case DataType::kFloat32: ConvertData<T_IN, float>(in, out, numel); break;
     case DataType::kFloat16: ConvertData<T_IN, half>(in, out, numel); break;
+    case DataType::kFloat8: THROW_ERROR("FP8 conversion not supported on CPU. Use TensorRT backend for FP8 support.");
     case DataType::kInt32: ConvertData<T_IN, int32_t>(in, out, numel); break;
     case DataType::kInt64: ConvertData<T_IN, int64_t>(in, out, numel); break;
     case DataType::kInt8: ConvertData<T_IN, int8_t>(in, out, numel); break;
@@ -49,6 +50,8 @@ void DispatchIn(const void* in, DataType in_type, void* out, DataType out_type,
     case DataType::kFloat16:
       DispatchOut<half>(static_cast<const half*>(in), out, numel, out_type);
       break;
+    case DataType::kFloat8:
+      THROW_ERROR("FP8 conversion not supported on CPU. Use TensorRT backend for FP8 support.");
     case DataType::kInt32:
       DispatchOut<int32_t>(static_cast<const int32_t*>(in), out, numel,
                            out_type);
@@ -198,16 +201,32 @@ std::unique_ptr<Tensor> Tensor::ToType(DataType dtype) const {
     return Clone();
   }
 
-  // 目前转换仅支持在CPU上进行
-  auto cpu_src = ToCPU();
-  auto cpu_dst = Empty(shape_, dtype, Device(DeviceType::kCPU));
-
-  DispatchIn(cpu_src->Data(), dtype_, cpu_dst->Data(), dtype, numel_);
-
-  // 如果原Tensor在CUDA上, 将转换后的结果搬回去
+  // 优先尝试 GPU 转换（如果在 CUDA 上）
   if (device_.type == DeviceType::kCUDA) {
+#ifdef WITH_CUDA
+    // 尝试使用 GPU 转换（通过 GPUTypeConverter）
+    // 暂时使用现有实现，后续会替换为真正的 GPU 转换
+    auto cpu_src = ToCPU();
+    auto cpu_dst = Empty(shape_, dtype, Device(DeviceType::kCPU));
+
+    DispatchIn(cpu_src->Data(), dtype_, cpu_dst->Data(), dtype, numel_);
+
     return cpu_dst->ToDevice(device_);
+#else
+    // 无 CUDA 支持，回退到 CPU 转换
+    auto cpu_src = ToCPU();
+    auto cpu_dst = Empty(shape_, dtype, Device(DeviceType::kCPU));
+
+    DispatchIn(cpu_src->Data(), dtype_, cpu_dst->Data(), dtype, numel_);
+
+    return cpu_dst->ToDevice(device_);
+#endif
   }
+
+  // CPU 上的转换
+  auto cpu_dst = Empty(shape_, dtype, Device(DeviceType::kCPU));
+  DispatchIn(Data(), dtype_, cpu_dst->Data(), dtype, numel_);
+
   return cpu_dst;
 }
 
@@ -247,6 +266,111 @@ Tensor& Tensor::Reshape(const std::vector<int64_t>& new_shape) {
   return *this;
 }
 
+std::unique_ptr<Tensor> Tensor::View(const std::vector<int64_t>& new_shape) {
+  int64_t new_numel = ComputeNumel(new_shape);
+
+  // 确保View前后元素总量一致
+  if (new_numel != numel_) {
+    THROW_ERRORN("View failed: element count mismatch.");
+  }
+
+  // 创建视图，共享底层内存
+  // 使用空 deleter，表示不管理内存生命周期
+  auto view = std::make_unique<Tensor>(
+      data_ptr_.get(),
+      new_shape,
+      dtype_,
+      device_,
+      [](void*) {});  // 空 deleter
+
+  return view;
+}
+
+std::unique_ptr<Tensor> Tensor::Slice(int64_t start, int64_t end, int axis) {
+  if (axis < 0 || axis >= static_cast<int>(shape_.size())) {
+    THROW_ERRORN("Slice: axis out of range.");
+  }
+  if (start < 0) start += shape_[axis];
+  if (end < 0) end += shape_[axis];
+  if (start < 0 || end > shape_[axis] || start >= end) {
+    THROW_ERRORN("Slice: invalid start/end indices.");
+  }
+
+  // 计算切片后的形状
+  std::vector<int64_t> new_shape = shape_;
+  new_shape[axis] = end - start;
+
+  // 计算数据偏移
+  size_t element_size = ElementSize(dtype_);
+  int64_t offset = start;
+
+  // 计算该维度之前的元素总数
+  for (int i = axis + 1; i < static_cast<int>(shape_.size()); ++i) {
+    offset *= shape_[i];
+  }
+
+  uint8_t* data_ptr = static_cast<uint8_t*>(data_ptr_.get()) + offset * element_size;
+
+  // 如果是在 CPU 上，可以使用零拷贝视图
+  if (device_.type == DeviceType::kCPU) {
+    return std::make_unique<Tensor>(
+        data_ptr,
+        new_shape,
+        dtype_,
+        device_,
+        [](void*) {});  // 空 deleter，视图不管理内存
+  } else {
+    // 在 GPU 上，需要创建新的 Tensor 并拷贝数据
+    // （因为需要维护正确的内存管理）
+    auto sliced = Empty(new_shape, dtype_, device_);
+    size_t copy_size = static_cast<size_t>(ComputeNumel(new_shape)) * element_size;
+#ifdef WITH_CUDA
+    cudaMemcpy(sliced->Data(), data_ptr, copy_size, cudaMemcpyDeviceToDevice);
+#else
+    THROW_ERRORN("Slice on CUDA not available without CUDA support.");
+#endif
+    return sliced;
+  }
+}
+
+void Tensor::CopyFrom(const Tensor* src) {
+  if (shape_ != src->Shape()) {
+    THROW_ERRORN("CopyFrom: shape mismatch.");
+  }
+  if (dtype_ != src->Type()) {
+    THROW_ERRORN("CopyFrom: data type mismatch.");
+  }
+
+  size_t bytes = ByteSize();
+
+  // 检查是否可以零拷贝（同一设备）
+  if (device_ == src->GetDevice()) {
+    if (device_.type == DeviceType::kCPU) {
+      std::memcpy(Data(), src->Data(), bytes);
+    } else {
+#ifdef WITH_CUDA
+      cudaMemcpy(Data(), src->Data(), bytes, cudaMemcpyDeviceToDevice);
+#endif
+    }
+  } else {
+    // 跨设备拷贝
+    if (device_.type == DeviceType::kCPU) {
+#ifdef WITH_CUDA
+      cudaMemcpy(Data(), src->Data(), bytes, cudaMemcpyDeviceToHost);
+#endif
+    } else {
+#ifdef WITH_CUDA
+      cudaMemcpy(Data(), src->Data(), bytes, cudaMemcpyHostToDevice);
+#endif
+    }
+  }
+}
+
+bool Tensor::SharesMemoryWith(const Tensor& other) const {
+  // 检查是否共享相同的底层内存
+  return data_ptr_.get() == other.data_ptr_.get();
+}
+
 const std::vector<int64_t>& Tensor::Shape() const {
   return shape_;
 }
@@ -276,6 +400,8 @@ size_t Tensor::ElementSize(DataType dtype) {
       return 8;
     case DataType::kFloat16:
       return 2;
+    case DataType::kFloat8:
+      return 1;
     case DataType::kInt8:
     case DataType::kUInt8:
       return 1;

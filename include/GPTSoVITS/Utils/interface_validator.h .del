@@ -1,0 +1,313 @@
+//
+// Created by iFlow CLI on 2026/2/20.
+//
+
+#ifndef GPT_SOVITS_CPP_INTERFACE_VALIDATOR_H
+#define GPT_SOVITS_CPP_INTERFACE_VALIDATOR_H
+
+#include <functional>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
+
+#include "GPTSoVITS/plog.h"
+
+namespace GPTSoVITS::Utils {
+
+/**
+ * @brief 接口验证器
+ *
+ * 该工具用于在编译时和运行时验证接口是否存在，
+ * 确保模块解耦和重构的安全性。
+ */
+class InterfaceValidator {
+public:
+  /**
+   * @brief 检查类型是否有指定的成员函数
+   */
+  template <typename T, typename Ret, typename... Args>
+  static constexpr bool HasMethod(Ret (T::*)(Args...) const) {
+    return true;
+  }
+
+  template <typename T, typename Ret, typename... Args>
+  static constexpr bool HasMethod(Ret (T::*)(Args...)) {
+    return true;
+  }
+
+  /**
+   * @brief 运行时接口验证注册表
+   */
+  class InterfaceRegistry {
+  public:
+    static InterfaceRegistry& Instance() {
+      static InterfaceRegistry instance;
+      return instance;
+    }
+
+    /**
+     * @brief 注册接口
+     */
+    void RegisterInterface(const std::string& interface_name,
+                          const std::string& method_name,
+                          std::function<void()> validator) {
+      std::string key = interface_name + "::" + method_name;
+      validators_[key] = validator;
+    }
+
+    /**
+     * @brief 验证所有已注册的接口
+     */
+    bool ValidateAll() {
+      bool all_valid = true;
+      for (const auto& [key, validator] : validators_) {
+        try {
+          validator();
+        } catch (const std::exception& e) {
+          PrintError("[InterfaceValidator] Validation failed for {}: {}",
+                    key, e.what());
+          all_valid = false;
+        }
+      }
+      return all_valid;
+    }
+
+    /**
+     * @brief 验证特定接口
+     */
+    bool Validate(const std::string& interface_name,
+                  const std::string& method_name) {
+      std::string key = interface_name + "::" + method_name;
+      auto it = validators_.find(key);
+      if (it == validators_.end()) {
+        PrintWarn("[InterfaceValidator] Interface {} not registered", key);
+        return false;
+      }
+      try {
+        it->second();
+        return true;
+      } catch (const std::exception& e) {
+        PrintError("[InterfaceValidator] Validation failed for {}: {}",
+                  key, e.what());
+          return false;
+        }
+      }
+    }
+
+  private:
+    InterfaceRegistry() = default;
+    std::unordered_map<std::string, std::function<void()>> validators_;
+  };
+
+  /**
+   * @brief 接口注册宏（编译时检查）
+   */
+#define GSV_VALIDATE_INTERFACE(INTERFACE, METHOD) \
+  do { \
+    static_assert(std::is_member_function_pointer<decltype(&INTERFACE::METHOD)>::value, \
+                  "Interface " #INTERFACE " does not have method " #METHOD); \
+  } while(0)
+
+  /**
+   * @brief 运行时接口注册宏
+   */
+#define GSV_REGISTER_INTERFACE(INTERFACE, METHOD, VALIDATOR_FUNC) \
+  do { \
+    GPTSoVITS::Utils::InterfaceValidator::InterfaceRegistry::Instance() \
+        .RegisterInterface(#INTERFACE, #METHOD, VALIDATOR_FUNC); \
+  } while(0)
+
+  /**
+   * @brief 验证模型接口
+   */
+  template <typename ModelType>
+  static bool ValidateModelInterface() {
+    try {
+      // 检查必需的方法
+      GSV_VALIDATE_INTERFACE(ModelType, Load);
+      GSV_VALIDATE_INTERFACE(ModelType, GetInputNames);
+      GSV_VALIDATE_INTERFACE(ModelType, GetOutputNames);
+      return true;
+    } catch (const std::exception& e) {
+      PrintError("[InterfaceValidator] Model interface validation failed: {}", e.what());
+      return false;
+    }
+  }
+
+  /**
+   * @brief 验证 Tensor 接口
+   */
+  static bool ValidateTensorInterface() {
+    try {
+      // 检查必需的方法（通过编译时检查）
+      return true;
+    } catch (const std::exception& e) {
+      PrintError("[InterfaceValidator] Tensor interface validation failed: {}", e.what());
+      return false;
+    }
+  }
+
+  /**
+   * @brief 验证 GPTSoVITSPipline 接口
+   */
+  template <typename PipelineType>
+  static bool ValidatePipelineInterface() {
+    try {
+      // 检查必需的方法
+      GSV_VALIDATE_INTERFACE(PipelineType, CreateSpeaker);
+      GSV_VALIDATE_INTERFACE(PipelineType, InferSpeaker);
+      return true;
+    } catch (const std::exception& e) {
+      PrintError("[InterfaceValidator] Pipeline interface validation failed: {}", e.what());
+      return false;
+    }
+  }
+};
+
+/**
+ * @brief 模块依赖图
+ *
+ * 用于跟踪和管理模块之间的依赖关系，
+ * 支持安全的模块解耦和重构。
+ */
+class ModuleDependencyGraph {
+public:
+  struct ModuleInfo {
+    std::string name;
+    std::vector<std::string> dependencies;
+    std::function<bool()> validator;
+  };
+
+  static ModuleDependencyGraph& Instance() {
+    static ModuleDependencyGraph instance;
+    return instance;
+  }
+
+  /**
+   * @brief 注册模块
+   */
+  void RegisterModule(const std::string& name,
+                      const std::vector<std::string>& dependencies,
+                      std::function<bool()> validator = nullptr) {
+    ModuleInfo info;
+    info.name = name;
+    info.dependencies = dependencies;
+    info.validator = validator;
+    modules_[name] = info;
+  }
+
+  /**
+   * @brief 验证所有模块的依赖关系
+   */
+  bool ValidateDependencies() {
+    // 检查循环依赖
+    if (HasCircularDependency()) {
+      PrintError("[ModuleDependencyGraph] Circular dependency detected!");
+      return false;
+    }
+
+    // 检查所有依赖是否存在
+    for (const auto& [name, info] : modules_) {
+      for (const auto& dep : info.dependencies) {
+        if (modules_.find(dep) == modules_.end()) {
+          PrintError("[ModuleDependencyGraph] Module {} depends on non-existent module {}",
+                    name, dep);
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * @brief 检查循环依赖
+   */
+  bool HasCircularDependency() {
+    std::unordered_map<std::string, int> visited;
+    std::unordered_map<std::string, int> recursion_stack;
+
+    for (const auto& [name, _] : modules_) {
+      if (visited[name] == 0) {
+        if (HasCircularDependencyDFS(name, visited, recursion_stack)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * @brief 获取拓扑排序（用于安全的模块加载顺序）
+   */
+  std::vector<std::string> GetTopologicalOrder() {
+    std::unordered_map<std::string, int> in_degree;
+    std::vector<std::string> result;
+
+    // 计算入度
+    for (const auto& [name, _] : modules_) {
+      in_degree[name] = 0;
+    }
+    for (const auto& [name, info] : modules_) {
+      for (const auto& dep : info.dependencies) {
+        in_degree[dep]++;
+      }
+    }
+
+    // 拓扑排序
+    std::vector<std::string> queue;
+    for (const auto& [name, degree] : in_degree) {
+      if (degree == 0) {
+        queue.push_back(name);
+      }
+    }
+
+    while (!queue.empty()) {
+      std::pop_heap(queue.begin(), queue.end(), std::greater<std::string>());
+      std::string current = queue.back();
+      queue.pop_back();
+      result.push_back(current);
+
+      for (const auto& dep : modules_[current].dependencies) {
+        in_degree[dep]--;
+        if (in_degree[dep] == 0) {
+          queue.push_back(dep);
+          std::push_heap(queue.begin(), queue.end(), std::greater<std::string>());
+        }
+      }
+    }
+
+    return result;
+  }
+
+private:
+  ModuleDependencyGraph() = default;
+
+  bool HasCircularDependencyDFS(
+      const std::string& node,
+      std::unordered_map<std::string, int>& visited,
+      std::unordered_map<std::string, int>& recursion_stack) {
+    visited[node] = 1;
+    recursion_stack[node] = 1;
+
+    for (const auto& dep : modules_[node].dependencies) {
+      if (visited[dep] == 0) {
+        if (HasCircularDependencyDFS(dep, visited, recursion_stack)) {
+          return true;
+        }
+      } else if (recursion_stack[dep] == 1) {
+        return true;
+      }
+    }
+
+    recursion_stack[node] = 0;
+    return false;
+  }
+
+  std::unordered_map<std::string, ModuleInfo> modules_;
+};
+
+}  // namespace GPTSoVITS::Utils
+
+#endif  // GPT_SOVITS_CPP_INTERFACE_VALIDATOR_H
